@@ -94,18 +94,81 @@ const _initCats = (() => {
 })();
 
 function pickSentences(letter, count, cats, aiSentences = []) {
-  // Vybrané kategorie + chytáky vždy
   const selectedCats = cats && cats.length > 0 ? cats : CATEGORY_ORDER.filter((c) => c !== "trickQuestions");
   const catsWithTricks = [...new Set([...selectedCats, "trickQuestions"])];
-  const pool = [...aiSentences, ...getSentencePoolByCategories(letter, catsWithTricks)];
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
+  const localPool = getSentencePoolByCategories(letter, catsWithTricks).map((sentence) => ({ ...sentence, _source: "local" }));
+  const aiPool = aiSentences.map((sentence) => ({ ...sentence, _source: "ai" }));
+  const shuffle = (pool) => {
+    const copy = [...pool];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  };
+  const signature = (sentence) => sentence.parts.map((p) => ("text" in p ? p.text : p.blank)).join("").replace(/\s+/g, " ").trim().toLowerCase();
+  const family = (sentence) => signature(sentence).slice(0, 28);
+
+  const aiQueue = shuffle(aiPool);
+  const localQueue = shuffle(localPool);
+  const aiTarget = Math.min(aiQueue.length, Math.max(0, Math.ceil(count * 0.35)));
+  const selected = [];
+  const usedSignatures = new Set();
+  const usedFamilies = new Set();
+  let aiUsed = 0;
+
+  const tryTakeFrom = (queue, source) => {
+    for (let i = 0; i < queue.length; i++) {
+      const candidate = queue[i];
+      const sig = signature(candidate);
+      const fam = family(candidate);
+      if (usedSignatures.has(sig) || usedFamilies.has(fam)) continue;
+      if (source === "ai" && aiUsed >= aiTarget && localQueue.length > 0) continue;
+      queue.splice(i, 1);
+      usedSignatures.add(sig);
+      usedFamilies.add(fam);
+      if (source === "ai") aiUsed++;
+      selected.push(candidate);
+      return true;
+    }
+    return false;
+  };
+
+  while (selected.length < count && (aiQueue.length || localQueue.length)) {
+    const preferAi = aiUsed < aiTarget && aiQueue.length > 0 && selected.length % 3 === 1;
+    const picked = preferAi
+      ? tryTakeFrom(aiQueue, "ai") || tryTakeFrom(localQueue, "local")
+      : tryTakeFrom(localQueue, "local") || tryTakeFrom(aiQueue, "ai");
+    if (!picked) {
+      const fallbackPool = [...aiQueue, ...localQueue];
+      if (!fallbackPool.length) break;
+      const candidate = fallbackPool.shift();
+      selected.push(candidate);
+      const sig = signature(candidate);
+      usedSignatures.add(sig);
+    }
   }
-  return pool.slice(0, Math.min(count, pool.length));
+
+  return selected.slice(0, Math.min(count, selected.length));
 }
 
 const _initM = pickSentences("M", _initCount, _initCats);
+
+function formatDateTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return `${date.toLocaleDateString("cs-CZ")} ${date.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+function shuffleArray(items) {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
 
 async function resizeImage(file) {
   return new Promise((resolve) => {
@@ -190,6 +253,10 @@ export default function App() {
   const [aiKeyInput, setAiKeyInput] = useState("");
   const [aiGenerating, setAiGenerating] = useState(null); // letter nebo null
   const [aiNotice, setAiNotice] = useState(null);
+  const [aiDebug, setAiDebug] = useState(null);
+  const [aiManageLetter, setAiManageLetter] = useState("M");
+  const [aiManageSentences, setAiManageSentences] = useState([]);
+  const [aiManageLoading, setAiManageLoading] = useState(false);
 
   // ── Persist settings ────────────────────────────────────────────────────
   useEffect(() => { localStorage.setItem("vs_dark", darkMode); }, [darkMode]);
@@ -315,9 +382,40 @@ export default function App() {
       const res = await fetch("/api/settings");
       setAiSettings(await res.json());
     } catch {
-      setAiSettings({ gemini_key_set: false, ai_counts: {} });
+      setAiSettings({
+        gemini_key_set: false,
+        ai_counts: {},
+        ai_status: null,
+        ai_limit_per_letter: 0,
+        ai_target_per_generate: 20,
+      });
     }
   }, []);
+
+  const loadAiDebug = useCallback(async () => {
+    try {
+      const res = await fetch("/api/ai-debug");
+      setAiDebug(await res.json());
+    } catch {
+      setAiDebug(null);
+    }
+  }, []);
+
+  const loadAiManageSentences = useCallback(async (letter) => {
+    setAiManageLoading(true);
+    try {
+      const res = await fetch(`/api/ai-sentences?letter=${letter}&include_meta=1`);
+      const data = await res.json();
+      setAiManageSentences(Array.isArray(data) ? data : []);
+    } catch {
+      setAiManageSentences([]);
+    }
+    setAiManageLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (currentUser) loadAiSettings();
+  }, [currentUser, loadAiSettings]);
 
   const handleSaveAiKey = async () => {
     try {
@@ -329,6 +427,7 @@ export default function App() {
       setAiKeyInput("");
       setAiNotice({ type: "success", text: "Gemini API klíč byl uložen." });
       await loadAiSettings();
+      await loadAiDebug();
     } catch {
       setAiNotice({ type: "error", text: "API klíč se nepodařilo uložit." });
     }
@@ -342,6 +441,7 @@ export default function App() {
     }).catch(() => {});
     setAiNotice({ type: "success", text: "Gemini API klíč byl smazán." });
     await loadAiSettings();
+    await loadAiDebug();
   };
 
   const handleGenerateAI = async (letter) => {
@@ -356,8 +456,11 @@ export default function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Chyba generování");
       await loadAiSettings();
+      await loadAiDebug();
+      if (aiManageLetter === letter) await loadAiManageSentences(letter);
       setAiNotice({ type: "success", text: `AI úspěšně vygenerovala ${data.generated ?? "nové"} věty pro písmeno ${letter}.` });
     } catch (e) {
+      await loadAiDebug();
       setAiNotice({ type: "error", text: e.message || "AI generování se nepodařilo. Zkuste to prosím znovu." });
     }
     setAiGenerating(null);
@@ -367,6 +470,35 @@ export default function App() {
     if (!window.confirm(`Smazat všechny AI věty pro písmeno ${letter}?`)) return;
     await fetch(`/api/ai-sentences/${letter}`, { method: "DELETE" }).catch(() => {});
     await loadAiSettings();
+    await loadAiDebug();
+    if (aiManageLetter === letter) await loadAiManageSentences(letter);
+  };
+
+  const handleReviewAISentence = async (id, review_status) => {
+    try {
+      await fetch(`/api/ai-sentences/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ review_status }),
+      });
+      await loadAiSettings();
+      await loadAiDebug();
+      await loadAiManageSentences(aiManageLetter);
+    } catch {
+      setAiNotice({ type: "error", text: "Nepodařilo se změnit stav AI věty." });
+    }
+  };
+
+  const handleDeleteAISentenceItem = async (id) => {
+    if (!window.confirm("Smazat tuto AI větu?")) return;
+    try {
+      await fetch(`/api/ai-sentence/${id}`, { method: "DELETE" });
+      await loadAiSettings();
+      await loadAiDebug();
+      await loadAiManageSentences(aiManageLetter);
+    } catch {
+      setAiNotice({ type: "error", text: "Nepodařilo se smazat AI větu." });
+    }
   };
 
   // ── Zvuk ────────────────────────────────────────────────────────────────
@@ -533,6 +665,8 @@ export default function App() {
   const data = TAB_META[activeTab];
   const currentSentences = sentences[activeTab];
   const bankSummary = getBankSummary(activeTab);
+  const activeAiCount = aiSettings?.ai_counts?.[activeTab] ?? 0;
+  const totalSentencePool = (bankSummary?.total ?? 0) + activeAiCount;
   const numBg = darkMode ? `${data.accent}22` : data.bg;
 
   const blankStyle = (si, bi, correctBlank) => {
@@ -866,18 +1000,49 @@ export default function App() {
                 {aiSettings.gemini_key_set && (
                   <div>
                     <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", color: t.subtext, marginBottom: 8 }}>
-                      Každé generování přidá ~20 vět (Google Gemini · zdarma)
+                      Každé generování přidá ~{aiSettings.ai_target_per_generate ?? 20} vět (Google Gemini · zdarma)
                     </div>
+                    <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: t.rowBg, border: `1px solid ${t.border}` }}>
+                      <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", color: t.subtext, marginBottom: 4 }}>
+                        Poslední úspěšné generování: <strong style={{ color: t.text }}>{formatDateTime(aiSettings.ai_status?.last_success_at)}</strong>
+                      </div>
+                      <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", color: t.subtext, marginBottom: 4 }}>
+                        Poslední model: <strong style={{ color: t.text }}>{aiSettings.ai_status?.last_model || "—"}</strong>
+                      </div>
+                      <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", color: t.subtext, marginBottom: aiSettings.ai_status?.last_error ? 6 : 0 }}>
+                        Retry pokusy naposledy: <strong style={{ color: t.text }}>{aiSettings.ai_status?.retries ?? 0}</strong>
+                      </div>
+                      {aiSettings.ai_status?.last_error && (
+                        <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", color: "#b7412d", lineHeight: 1.45 }}>
+                          Poslední AI chyba: {aiSettings.ai_status.last_error}
+                        </div>
+                      )}
+                    </div>
+                    {aiDebug?.ai_status?.last_attempts?.length > 0 && (
+                      <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: 10, background: t.rowBg, border: `1px solid ${t.border}` }}>
+                        <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, marginBottom: 8, fontSize: "0.88rem" }}>
+                          Poslední AI pokusy
+                        </div>
+                        {aiDebug.ai_status.last_attempts.slice(0, 5).map((attempt, idx) => (
+                          <div key={`${attempt.at}-${idx}`} style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", color: t.subtext, marginBottom: 5, lineHeight: 1.4 }}>
+                            {formatDateTime(attempt.at)} · <strong style={{ color: t.text }}>{attempt.model}</strong> · {attempt.outcome}
+                            {attempt.error ? ` · ${attempt.error}` : ""}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {LETTERS.map((letter) => {
                       const count = aiSettings.ai_counts?.[letter] ?? 0;
                       const isGenerating = aiGenerating === letter;
+                      const overview = aiSettings.ai_overview?.[letter];
                       return (
                         <div key={letter} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${t.border}` }}>
                           <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: TAB_META[letter].color, width: 64, fontSize: "0.88rem", flexShrink: 0 }}>
                             {TAB_META[letter].emoji} Po {letter}
                           </span>
-                          <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.82rem", color: t.subtext, flex: 1 }}>
-                            {count} vět
+                          <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.82rem", color: t.subtext, flex: 1, lineHeight: 1.35 }}>
+                            {count}{aiSettings.ai_limit_per_letter ? ` / ${aiSettings.ai_limit_per_letter}` : ""} vět
+                            {overview && ` · skryté ${overview.hidden} · špatné ${overview.rejected}`}
                           </span>
                           <button
                             className="chip-btn"
@@ -885,7 +1050,7 @@ export default function App() {
                             disabled={!!aiGenerating}
                             style={{ background: isGenerating ? t.chipInactiveBg : "#27ae60", color: isGenerating ? t.subtext : "white", fontSize: "0.78rem" }}
                           >
-                            {isGenerating ? "Generuji…" : "+ Generovat"}
+                            {isGenerating ? "Generuji…" : count > 0 ? "+ Doplnit" : "+ Generovat"}
                           </button>
                           {count > 0 && (
                             <button
@@ -901,6 +1066,73 @@ export default function App() {
                         </div>
                       );
                     })}
+                    <div style={{ marginTop: 16, padding: "12px 12px 8px", borderRadius: 12, background: t.rowBg, border: `1px solid ${t.border}` }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+                        <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, fontSize: "0.88rem" }}>
+                          Správa AI vět
+                        </div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {LETTERS.map((letter) => (
+                            <button
+                              key={letter}
+                              className="chip-btn"
+                              onClick={() => { setAiManageLetter(letter); loadAiManageSentences(letter); }}
+                              style={{ background: aiManageLetter === letter ? TAB_META[letter].accent : t.chipInactiveBg, color: aiManageLetter === letter ? "white" : t.chipInactiveText, fontSize: "0.75rem" }}
+                            >
+                              {letter}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {aiManageLoading && (
+                        <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", color: t.subtext, padding: "8px 0" }}>
+                          Načítám AI věty…
+                        </div>
+                      )}
+                      {!aiManageLoading && aiManageSentences.length === 0 && (
+                        <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", color: t.subtext, padding: "8px 0" }}>
+                          Pro písmeno {aiManageLetter} zatím nejsou uložené žádné AI věty.
+                        </div>
+                      )}
+                      {!aiManageLoading && aiManageSentences.slice(0, 12).map((item) => {
+                        const sentenceText = item.sentence?.parts?.map((part) => ("text" in part ? part.text : `[${part.blank}]`)).join("") || "—";
+                        const statusColor = item.review_status === "active" ? "#1f7a3f" : item.review_status === "hidden" ? "#8c6d1f" : "#b7412d";
+                        return (
+                          <div key={item.id} style={{ padding: "9px 0", borderTop: `1px solid ${t.border}` }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.82rem", color: t.text, lineHeight: 1.45 }}>
+                                  {sentenceText}
+                                </div>
+                                <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.74rem", color: statusColor, marginTop: 4 }}>
+                                  {item.review_status} · {formatDateTime(item.created_at)}{item.source_model ? ` · ${item.source_model}` : ""}
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                {item.review_status !== "active" && (
+                                  <button className="chip-btn" onClick={() => handleReviewAISentence(item.id, "active")} style={{ background: "#eefaf1", color: "#1f7a3f", fontSize: "0.74rem" }}>
+                                    Obnovit
+                                  </button>
+                                )}
+                                {item.review_status !== "hidden" && (
+                                  <button className="chip-btn" onClick={() => handleReviewAISentence(item.id, "hidden")} style={{ background: "#fff7e6", color: "#9a6b10", fontSize: "0.74rem" }}>
+                                    Skrýt
+                                  </button>
+                                )}
+                                {item.review_status !== "rejected" && (
+                                  <button className="chip-btn" onClick={() => handleReviewAISentence(item.id, "rejected")} style={{ background: "#fff1f0", color: "#b7412d", fontSize: "0.74rem" }}>
+                                    Špatná
+                                  </button>
+                                )}
+                                <button className="chip-btn" onClick={() => handleDeleteAISentenceItem(item.id)} style={{ background: t.chipInactiveBg, color: "#e74c3c", fontSize: "0.74rem" }}>
+                                  Smazat
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </>
@@ -935,7 +1167,7 @@ export default function App() {
               <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.85rem", color: t.pillText }}>{currentUser.name}</span>
             </div>
             {currentUser.role === "parent" && (
-              <button onClick={() => { loadUsers(); loadAiSettings(); setShowManage(true); }} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 10px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.88rem", color: t.pillText, cursor: "pointer" }}>
+              <button onClick={() => { loadUsers(); loadAiSettings(); loadAiDebug(); loadAiManageSentences(aiManageLetter); setShowManage(true); }} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 10px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.88rem", color: t.pillText, cursor: "pointer" }}>
                 ⚙️
               </button>
             )}
@@ -1008,7 +1240,8 @@ export default function App() {
               </div>
               {bankSummary && (
                 <div style={{ marginTop: 4, fontSize: "0.8rem", fontFamily: "'Nunito', sans-serif", color: t.subtext }}>
-                  Databáze: {bankSummary.total} / {bankSummary.targetTotal} vět
+                  Místní databáze: {bankSummary.total} / {bankSummary.targetTotal} vět
+                  {activeAiCount > 0 && ` · AI věty: ${activeAiCount} · Celkem: ${totalSentencePool}`}
                 </div>
               )}
             </div>

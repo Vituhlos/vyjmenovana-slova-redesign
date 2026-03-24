@@ -6,9 +6,24 @@ import { createHash } from "crypto";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { mkdirSync } from "fs";
+import {
+  AI_SENTENCE_FETCH_LIMIT,
+  AI_SENTENCE_LIMIT_PER_LETTER,
+  GEMINI_MAX_MODEL_ATTEMPTS,
+  GEMINI_SENTENCE_SCHEMA,
+  GEMINI_SENTENCE_TARGET,
+  buildGeminiModelCandidates,
+  createGeminiError,
+  isTemporaryGeminiError,
+  normalizeGeminiSentenceBatch,
+  parseGeminiCandidateText,
+  shouldSwitchGeminiModel,
+  sleep,
+  summarizeAiStatus,
+} from "./gemini.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = join(__dirname, "data");
+const DATA_DIR = process.env.DATA_DIR || join(__dirname, "data");
 mkdirSync(DATA_DIR, { recursive: true });
 
 const db = new Database(join(DATA_DIR, "sessions.db"));
@@ -49,6 +64,8 @@ db.exec(`
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     letter       TEXT NOT NULL,
     sentence_json TEXT NOT NULL,
+    review_status TEXT NOT NULL DEFAULT 'active',
+    source_model  TEXT,
     created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `);
@@ -61,12 +78,29 @@ if (!cols.find((c) => c.name === "user_id")) {
 if (!cols.find((c) => c.name === "duration_s")) {
   db.exec("ALTER TABLE sessions ADD COLUMN duration_s INTEGER");
 }
+const aiCols = db.prepare("PRAGMA table_info(ai_sentences)").all();
+if (!aiCols.find((c) => c.name === "review_status")) {
+  db.exec("ALTER TABLE ai_sentences ADD COLUMN review_status TEXT NOT NULL DEFAULT 'active'");
+}
+if (!aiCols.find((c) => c.name === "source_model")) {
+  db.exec("ALTER TABLE ai_sentences ADD COLUMN source_model TEXT");
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 const hashPin = (pin) => createHash("sha256").update("vs:" + pin).digest("hex");
 
 const getSetting = (key) => db.prepare("SELECT value FROM settings WHERE key = ?").get(key)?.value ?? null;
 const setSetting = (key, value) => db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, value);
+const getJsonSetting = (key, fallback = null) => {
+  const value = getSetting(key);
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+};
+const setJsonSetting = (key, value) => setSetting(key, JSON.stringify(value));
 
 // ── Gemini AI generování vět ──────────────────────────────────────────────
 const WORD_HINTS = {
@@ -79,43 +113,101 @@ const WORD_HINTS = {
   V: "vy, výr, výt, vyžle, vydra, výskat, vysoký + předpony vy-/vý- (vyhrát, vyjet, výroba, vyprávět...). Chytáky (vi/ví): vidět, vítr, vím, violka, vítěz, vítat, víla, vír, virus, vinice.",
   Z: "zvyk, jazyk, brzy, nazývat, jazýček. Chytáky (zi/zí): zítra, zima, zimní, zírat, zisk, zívat.",
 };
+let mockAiSequence = 0;
 
-const GEMINI_MODEL_CANDIDATES = [
-  process.env.GEMINI_MODEL,
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
-  "gemini-2.0-flash-lite",
-  "gemini-1.5-flash",
-  "gemini-1.5-flash-001",
-].filter(Boolean);
+function loadAiStatus() {
+  return summarizeAiStatus(getJsonSetting("ai_status", {}));
+}
 
-const GEMINI_SENTENCE_TARGET = 20;
-const GEMINI_MAX_MODEL_ATTEMPTS = 3;
-const GEMINI_TEMPORARY_ERROR_RE = /rate limit|high demand|try again later|temporarily unavailable|overloaded|internal error|backend error/i;
-const GEMINI_SWITCH_MODEL_ERROR_RE = /not found|not supported|quota exceeded/i;
+function saveAiStatus(patch) {
+  const current = loadAiStatus();
+  const next = summarizeAiStatus({
+    ...current,
+    ...patch,
+    last_event_at: new Date().toISOString(),
+  });
+  setJsonSetting("ai_status", next);
+  return next;
+}
 
-const GEMINI_SENTENCE_SCHEMA = {
-  type: "array",
-  items: {
-    type: "object",
-    properties: {
-      before: { type: "string" },
-      blank: { type: "string", enum: ["y", "ý", "i", "í"] },
-      after: { type: "string" },
-    },
-    required: ["before", "blank", "after"],
-  },
-};
+function recordAiAttempt(event) {
+  const current = loadAiStatus();
+  const attempts = Array.isArray(current.last_attempts) ? current.last_attempts : [];
+  const nextAttempts = [{ at: new Date().toISOString(), ...event }, ...attempts].slice(0, 12);
+  return saveAiStatus({ ...current, last_attempts: nextAttempts });
+}
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+function getExistingAiSignatures(letter) {
+  const rows = db
+    .prepare("SELECT sentence_json FROM ai_sentences WHERE letter = ? AND review_status = 'active'")
+    .all(letter);
+  const signatures = new Set();
 
-const createGeminiError = (message, extra = {}) => Object.assign(new Error(message), extra);
+  for (const row of rows) {
+    try {
+      const sentence = JSON.parse(row.sentence_json);
+      const signature = sentence.parts
+        ?.map((part) => ("text" in part ? part.text : part.blank))
+        .join("")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+      if (signature) signatures.add(signature);
+    } catch {}
+  }
 
-const isTemporaryGeminiError = (status, message) =>
-  status === 429 || GEMINI_TEMPORARY_ERROR_RE.test(message);
+  return signatures;
+}
 
-const shouldSwitchGeminiModel = (status, message) =>
-  status === 404 || GEMINI_SWITCH_MODEL_ERROR_RE.test(message);
+function trimAiSentenceCache(letter) {
+  const total = db
+    .prepare("SELECT COUNT(*) AS n FROM ai_sentences WHERE letter = ? AND review_status = 'active'")
+    .get(letter).n;
+  const overflow = total - AI_SENTENCE_LIMIT_PER_LETTER;
+  if (overflow <= 0) return total;
+
+  db.prepare(
+    `DELETE FROM ai_sentences
+     WHERE id IN (
+       SELECT id FROM ai_sentences
+       WHERE letter = ? AND review_status = 'active'
+       ORDER BY created_at ASC, id ASC
+       LIMIT ?
+     )`
+  ).run(letter, overflow);
+
+  return db
+    .prepare("SELECT COUNT(*) AS n FROM ai_sentences WHERE letter = ? AND review_status = 'active'")
+    .get(letter).n;
+}
+
+function getAiCounts() {
+  const counts = {};
+  for (const letter of ["M", "P", "L", "B", "F", "S", "V", "Z"]) {
+    counts[letter] = db
+      .prepare("SELECT COUNT(*) AS n FROM ai_sentences WHERE letter = ? AND review_status = 'active'")
+      .get(letter).n;
+  }
+  return counts;
+}
+
+function getAiOverview() {
+  const rows = db.prepare(`
+    SELECT
+      letter,
+      review_status,
+      COUNT(*) AS n
+    FROM ai_sentences
+    GROUP BY letter, review_status
+    ORDER BY letter, review_status
+  `).all();
+
+  const overview = Object.fromEntries(["M", "P", "L", "B", "F", "S", "V", "Z"].map((letter) => [letter, { active: 0, hidden: 0, rejected: 0 }]));
+  for (const row of rows) {
+    if (overview[row.letter]) overview[row.letter][row.review_status] = row.n;
+  }
+  return overview;
+}
 
 async function listGeminiGenerateContentModels(apiKey) {
   const response = await fetch(
@@ -139,28 +231,30 @@ async function listGeminiGenerateContentModels(apiKey) {
     .filter(Boolean);
 }
 
-function buildGeminiModelCandidates(availableModels) {
-  const preferred = [];
-  const seen = new Set();
-
-  const add = (model) => {
-    if (!model || seen.has(model)) return;
-    seen.add(model);
-    preferred.push(model);
-  };
-
-  for (const model of GEMINI_MODEL_CANDIDATES) add(model);
-
-  for (const model of availableModels) {
-    if (/flash/i.test(model)) add(model);
+async function generateSentencesFromGemini(letter, apiKey) {
+  if (process.env.GEMINI_TEST_MODE === "1") {
+    const existingSignatures = getExistingAiSignatures(letter);
+    const base = mockAiSequence;
+    mockAiSequence += GEMINI_SENTENCE_TARGET;
+    const mockBatch = Array.from({ length: GEMINI_SENTENCE_TARGET }, (_, i) => ({
+      before: `Testovací věta ${base + i + 1} pro ${letter} m`,
+      blank: i % 2 === 0 ? "y" : "í",
+      after: i % 2 === 0 ? "š vznikla při testu." : "sa vznikla při testu.",
+    }));
+    const sentences = normalizeGeminiSentenceBatch(mockBatch, existingSignatures);
+    saveAiStatus({
+      last_success_at: new Date().toISOString(),
+      last_letter: letter,
+      last_model: "mock-gemini",
+      last_generated: sentences.length,
+      tried_models: ["mock-gemini"],
+      retries: 0,
+      last_error: null,
+      last_attempts: [{ at: new Date().toISOString(), letter, model: "mock-gemini", attempt: 1, outcome: "success", generated: sentences.length }],
+    });
+    return sentences;
   }
 
-  for (const model of availableModels) add(model);
-
-  return preferred;
-}
-
-async function generateSentencesFromGemini(letter, apiKey) {
   const prompt = `Vygeneruj ${GEMINI_SENTENCE_TARGET} různých českých vět pro žáky 2.–5. třídy procvičující vyjmenovaná slova po písmenu ${letter}.
 
 Slova k použití: ${WORD_HINTS[letter]}
@@ -186,8 +280,10 @@ Příklady správného rozdělení:
 
   let lastError = null;
   const triedModels = [];
+  let totalRetries = 0;
   const availableModels = await listGeminiGenerateContentModels(apiKey);
   const modelCandidates = buildGeminiModelCandidates(availableModels);
+  const existingSignatures = getExistingAiSignatures(letter);
 
   for (const model of modelCandidates) {
     let switchedModel = false;
@@ -216,6 +312,7 @@ Příklady správného rozdělení:
         console.warn(`[Gemini] model=${model} attempt=${attempt}/${GEMINI_MAX_MODEL_ATTEMPTS} HTTP ${response.status}: ${message}`);
 
         if (shouldSwitchGeminiModel(response.status, message)) {
+          recordAiAttempt({ letter, model, attempt, outcome: "switch", error: message });
           triedModels.push(model);
           lastError = createGeminiError(`Model ${model}: ${message}`, { temporary: false });
           switchedModel = true;
@@ -223,8 +320,10 @@ Příklady správného rozdělení:
         }
 
         if (isTemporaryGeminiError(response.status, message)) {
+          recordAiAttempt({ letter, model, attempt, outcome: "retryable_error", error: message });
           lastError = createGeminiError(`Model ${model}: ${message}`, { temporary: true });
           if (attempt < GEMINI_MAX_MODEL_ATTEMPTS) {
+            totalRetries++;
             await sleep(600 * attempt);
             continue;
           }
@@ -242,6 +341,7 @@ Příklady správného rozdělení:
 
       if (candidate?.finishReason === "MAX_TOKENS") {
         console.warn(`[Gemini] model=${model} attempt=${attempt}/${GEMINI_MAX_MODEL_ATTEMPTS} finishReason=MAX_TOKENS`);
+        recordAiAttempt({ letter, model, attempt, outcome: "max_tokens", error: "MAX_TOKENS" });
         lastError = createGeminiError(`Model ${model}: odpověď byla uříznutá kvůli limitu tokenů`, { temporary: true });
         triedModels.push(model);
         switchedModel = true;
@@ -250,31 +350,21 @@ Příklady správného rozdělení:
 
       let raw;
       try {
-        raw = JSON.parse(text);
-      } catch {
-        const jsonMatch = text.match(/\[[\s\S]*\]/);
-        if (!jsonMatch) {
-          console.warn(`[Gemini] model=${model} attempt=${attempt}/${GEMINI_MAX_MODEL_ATTEMPTS} vrátil neparsovatelný obsah`);
-          lastError = createGeminiError(`Model ${model}: nevrátil validní JSON pole`, { temporary: true });
-          triedModels.push(model);
-          switchedModel = true;
-          break;
-        }
-        raw = JSON.parse(jsonMatch[0]);
+        raw = parseGeminiCandidateText(text, model);
+      } catch (error) {
+        console.warn(`[Gemini] model=${model} attempt=${attempt}/${GEMINI_MAX_MODEL_ATTEMPTS} vrátil neparsovatelný obsah`);
+        recordAiAttempt({ letter, model, attempt, outcome: "invalid_json", error: error.message });
+        lastError = createGeminiError(`Model ${model}: ${error.message}`, { temporary: true });
+        triedModels.push(model);
+        switchedModel = true;
+        break;
       }
 
-      const sentences = raw
-        .filter((s) =>
-          typeof s.before === "string" &&
-          typeof s.after === "string" &&
-          ["y", "ý", "i", "í"].includes(s.blank)
-        )
-        .map((s) => ({
-          parts: [{ text: s.before }, { blank: s.blank }, { text: s.after }],
-        }));
+      const sentences = normalizeGeminiSentenceBatch(raw, existingSignatures);
 
       if (sentences.length === 0) {
         console.warn(`[Gemini] model=${model} attempt=${attempt}/${GEMINI_MAX_MODEL_ATTEMPTS} vrátil 0 validních vět`);
+        recordAiAttempt({ letter, model, attempt, outcome: "empty_valid_batch", error: "No usable sentences" });
         lastError = createGeminiError(`Model ${model}: nevrátil žádné použitelné věty`, { temporary: true });
         triedModels.push(model);
         switchedModel = true;
@@ -282,6 +372,16 @@ Příklady správného rozdělení:
       }
 
       console.info(`[Gemini] model=${model} attempt=${attempt}/${GEMINI_MAX_MODEL_ATTEMPTS} uspěl, vět=${sentences.length}`);
+      recordAiAttempt({ letter, model, attempt, outcome: "success", generated: sentences.length });
+      saveAiStatus({
+        last_success_at: new Date().toISOString(),
+        last_letter: letter,
+        last_model: model,
+        last_generated: sentences.length,
+        tried_models: triedModels.length > 0 ? [...triedModels, model] : [model],
+        retries: totalRetries,
+        last_error: null,
+      });
       return sentences;
     }
 
@@ -291,6 +391,14 @@ Příklady správného rozdělení:
   }
 
   if (lastError) {
+    saveAiStatus({
+      last_letter: letter,
+      last_model: triedModels.at(-1) || null,
+      last_generated: 0,
+      tried_models: triedModels,
+      retries: totalRetries,
+      last_error: lastError.message,
+    });
     const prefix = lastError.temporary
       ? "AI generování je teď dočasně nedostupné."
       : "AI generování teď není dostupné.";
@@ -322,11 +430,14 @@ app.use(express.static(PUBLIC_DIR));
 // Vrátí info o nastavení (klíč se nikdy neposílá klientovi)
 app.get("/api/settings", (req, res) => {
   const keySet = !!getSetting("gemini_key");
-  const counts = {};
-  for (const letter of ["M", "P", "L", "B", "F", "S", "V", "Z"]) {
-    counts[letter] = db.prepare("SELECT COUNT(*) AS n FROM ai_sentences WHERE letter = ?").get(letter).n;
-  }
-  res.json({ gemini_key_set: keySet, ai_counts: counts });
+  res.json({
+    gemini_key_set: keySet,
+    ai_counts: getAiCounts(),
+    ai_overview: getAiOverview(),
+    ai_status: loadAiStatus(),
+    ai_limit_per_letter: AI_SENTENCE_LIMIT_PER_LETTER,
+    ai_target_per_generate: GEMINI_SENTENCE_TARGET,
+  });
 });
 
 // Ulož Gemini API klíč (nebo ho smaž prázdným stringem)
@@ -346,10 +457,36 @@ app.put("/api/settings", (req, res) => {
 
 // Vrátí uložené AI věty pro dané písmeno
 app.get("/api/ai-sentences", (req, res) => {
-  const { letter } = req.query;
+  const { letter, include_meta } = req.query;
   if (!letter) return res.status(400).json({ error: "Chybí písmeno" });
-  const rows = db.prepare("SELECT sentence_json FROM ai_sentences WHERE letter = ? ORDER BY RANDOM() LIMIT 80").all(letter);
+  if (include_meta === "1") {
+    const rows = db
+      .prepare(`
+        SELECT id, sentence_json, review_status, source_model, created_at
+        FROM ai_sentences
+        WHERE letter = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT 120
+      `)
+      .all(letter);
+    return res.json(rows.map((r) => ({ ...r, sentence: JSON.parse(r.sentence_json) })));
+  }
+  const rows = db
+    .prepare("SELECT sentence_json FROM ai_sentences WHERE letter = ? AND review_status = 'active' ORDER BY RANDOM() LIMIT ?")
+    .all(letter, AI_SENTENCE_FETCH_LIMIT);
   res.json(rows.map((r) => JSON.parse(r.sentence_json)));
+});
+
+app.put("/api/ai-sentences/:id", (req, res) => {
+  const { review_status } = req.body;
+  if (!["active", "hidden", "rejected"].includes(review_status)) {
+    return res.status(400).json({ error: "Neplatný review_status" });
+  }
+  const existing = db.prepare("SELECT id, letter FROM ai_sentences WHERE id = ?").get(req.params.id);
+  if (!existing) return res.status(404).json({ error: "AI věta nenalezena" });
+  db.prepare("UPDATE ai_sentences SET review_status = ? WHERE id = ?").run(review_status, req.params.id);
+  const total = trimAiSentenceCache(existing.letter);
+  res.json({ ok: true, total });
 });
 
 // Vygeneruj nové AI věty pro dané písmeno přes Gemini
@@ -365,13 +502,14 @@ app.post("/api/generate", async (req, res) => {
     const sentences = await generateSentencesFromGemini(letter, apiKey);
     if (sentences.length === 0) throw new Error("Žádné věty se nepodařilo vygenerovat");
 
-    const insert = db.prepare("INSERT INTO ai_sentences (letter, sentence_json) VALUES (?, ?)");
+    const status = loadAiStatus();
+    const insert = db.prepare("INSERT INTO ai_sentences (letter, sentence_json, review_status, source_model) VALUES (?, ?, 'active', ?)");
     const insertMany = db.transaction((sents) => {
-      for (const s of sents) insert.run(letter, JSON.stringify(s));
+      for (const s of sents) insert.run(letter, JSON.stringify(s), status.last_model || null);
     });
     insertMany(sentences);
 
-    const total = db.prepare("SELECT COUNT(*) AS n FROM ai_sentences WHERE letter = ?").get(letter).n;
+    const total = trimAiSentenceCache(letter);
     res.json({ generated: sentences.length, total });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -382,6 +520,23 @@ app.post("/api/generate", async (req, res) => {
 app.delete("/api/ai-sentences/:letter", (req, res) => {
   db.prepare("DELETE FROM ai_sentences WHERE letter = ?").run(req.params.letter);
   res.json({ ok: true });
+});
+
+app.delete("/api/ai-sentence/:id", (req, res) => {
+  const existing = db.prepare("SELECT id FROM ai_sentences WHERE id = ?").get(req.params.id);
+  if (!existing) return res.status(404).json({ error: "AI věta nenalezena" });
+  db.prepare("DELETE FROM ai_sentences WHERE id = ?").run(req.params.id);
+  res.json({ ok: true });
+});
+
+app.get("/api/ai-debug", (req, res) => {
+  res.json({
+    ai_status: loadAiStatus(),
+    ai_overview: getAiOverview(),
+    ai_counts: getAiCounts(),
+    ai_limit_per_letter: AI_SENTENCE_LIMIT_PER_LETTER,
+    ai_target_per_generate: GEMINI_SENTENCE_TARGET,
+  });
 });
 
 // ── Uživatelé ─────────────────────────────────────────────────────────────
@@ -499,6 +654,10 @@ app.get("*", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server běží na portu ${PORT}`);
-});
+export { app, db };
+
+if (process.env.NODE_ENV !== "test") {
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server běží na portu ${PORT}`);
+  });
+}

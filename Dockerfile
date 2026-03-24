@@ -12,7 +12,7 @@ FROM node:20-alpine
 WORKDIR /app
 COPY backend/package.json ./
 RUN npm install
-COPY backend/server.js ./
+COPY backend/*.js ./
 COPY --from=build /app/dist ./public
 EXPOSE 3001
 CMD ["node", "server.js"]

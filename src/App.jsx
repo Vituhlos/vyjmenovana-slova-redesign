@@ -11,6 +11,8 @@ const TAB_META = {
   V: { color: "#0d3b5e", bg: "#f0faff", accent: "#2471a3", emoji: "🦦" },
   Z: { color: "#4a0050", bg: "#fdf5ff", accent: "#8e44ad", emoji: "🔔" },
 };
+const MIX_META = { color: "#5d4e8a", bg: "#f5f2ff", accent: "#7f6ccc", emoji: "🎲" };
+const REVIEW_META = { color: "#1a5e34", bg: "#f0fff5", accent: "#27ae60", emoji: "🔁" };
 
 const CAT_LABELS = {
   basicWords: "Základní",
@@ -93,10 +95,35 @@ const _initCats = (() => {
   } catch { return [...SELECTABLE_CATS]; }
 })();
 
-function pickSentences(letter, count, cats, aiSentences = []) {
+const TAHAK_DATA = {
+  M: { words: ["my", "mýt", "mýdlo", "hmyz", "myš", "hlemýžď", "přemýšlet", "zamykat", "omyl", "dmýchat", "smýkat", "chm-ý-ří", "mýtit"], tricky: ["mísa", "místo", "mistr", "milý", "minuta", "míč", "minout"] },
+  P: { words: ["pytel", "pýcha", "pysk", "pyl", "kopýto", "netopýr", "klopýtat", "pytlík"], tricky: ["pilný", "pilot", "piknik", "pivoňka", "pila", "píle", "píseň", "píšťalka", "písmo", "písek"] },
+  L: { words: ["lyže", "lýtko", "lysý", "lyra", "pelyněk", "plytký", "blýskat", "polykat", "plynout", "plýtvat", "vzlykat", "palyhy"], tricky: ["líný", "líbí", "list", "lípa", "liška", "líčko", "lístek", "limonáda"] },
+  B: { words: ["bydlet", "byt", "bylina", "býk", "kobyla", "obyčej", "bystrý", "obyvatel", "nábytek", "dobytek"], tricky: ["bílý", "bitva", "bič", "bizon", "bicykl", "bída", "bílek"] },
+  F: { words: ["fyzika", "fyzický", "fyzioterapeut", "fyzioterapie", "fyziologie", "fyzikální"], tricky: ["firma", "film", "fialový", "fikus", "figura", "finance", "figurka"] },
+  S: { words: ["syn", "sýr", "syrový", "sytý", "sýkora", "sychravo", "sypat", "sysel", "syčet", "nasytit"], tricky: ["silnice", "síla", "silný", "sirup", "Silvestr", "sice"] },
+  V: { words: ["vy", "výr", "výt", "vyžle", "vydra", "výskat", "vysoký"], note: "Předpony vy-/vý-: vyhrát, vyjet, výroba, vyprávět, vybrat, výběr, vyučovat…", tricky: ["vidět", "vítr", "vím", "violka", "vítěz", "vítat", "víla", "vír", "virus", "vinice"] },
+  Z: { words: ["zvyk", "jazyk", "brzy", "nazývat", "jazýček"], tricky: ["zítra", "zima", "zimní", "zírat", "zisk", "zívat"] },
+};
+
+const SEEN_MAX = 80;
+function getSeenSigs(letter) {
+  try { return new Set(JSON.parse(localStorage.getItem(`vs_seen_${letter}`) || "[]")); } catch { return new Set(); }
+}
+function addSeenSigs(letter, sigs) {
+  try {
+    const prev = JSON.parse(localStorage.getItem(`vs_seen_${letter}`) || "[]");
+    localStorage.setItem(`vs_seen_${letter}`, JSON.stringify([...prev, ...sigs].slice(-SEEN_MAX)));
+  } catch {}
+}
+
+function pickSentences(letter, count, cats, aiSentences = [], seenSignatures = new Set()) {
   const selectedCats = cats && cats.length > 0 ? cats : CATEGORY_ORDER.filter((c) => c !== "trickQuestions");
   const catsWithTricks = [...new Set([...selectedCats, "trickQuestions"])];
-  const localPool = getSentencePoolByCategories(letter, catsWithTricks).map((sentence) => ({ ...sentence, _source: "local" }));
+  const localPool = (letter === "MIX"
+    ? LETTERS.flatMap((l) => getSentencePoolByCategories(l, catsWithTricks))
+    : getSentencePoolByCategories(letter, catsWithTricks)
+  ).map((sentence) => ({ ...sentence, _source: "local" }));
   const aiPool = aiSentences.map((sentence) => ({ ...sentence, _source: "ai" }));
   const shuffle = (pool) => {
     const copy = [...pool];
@@ -108,9 +135,10 @@ function pickSentences(letter, count, cats, aiSentences = []) {
   };
   const signature = (sentence) => sentence.parts.map((p) => ("text" in p ? p.text : p.blank)).join("").replace(/\s+/g, " ").trim().toLowerCase();
   const family = (sentence) => signature(sentence).slice(0, 28);
+  const byUnseen = (pool) => { const s = shuffle(pool); return [...s.filter((x) => !seenSignatures.has(signature(x))), ...s.filter((x) => seenSignatures.has(signature(x)))]; };
 
-  const aiQueue = shuffle(aiPool);
-  const localQueue = shuffle(localPool);
+  const aiQueue = byUnseen(aiPool);
+  const localQueue = byUnseen(localPool);
   const aiTarget = Math.min(aiQueue.length, Math.max(0, Math.ceil(count * 0.35)));
   const selected = [];
   const usedSignatures = new Set();
@@ -156,7 +184,8 @@ const _initM = pickSentences("M", _initCount, _initCats);
 
 function formatDateTime(value) {
   if (!value) return "—";
-  const date = new Date(value);
+  const normalized = typeof value === "string" && !value.endsWith("Z") && !value.includes("+") ? value.replace(" ", "T") + "Z" : value;
+  const date = new Date(normalized);
   if (Number.isNaN(date.getTime())) return "—";
   return `${date.toLocaleDateString("cs-CZ")} ${date.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}`;
 }
@@ -216,10 +245,10 @@ export default function App() {
 
   // Cvičení
   const [activeTab, setActiveTab] = useState("M");
-  const [sentences, setSentences] = useState(() => ({ ...LETTERS_OBJ(null), M: _initM }));
-  const [inputs, setInputs] = useState(() => ({ ...LETTERS_OBJ([]), M: _initM.map((s) => s.parts.filter((p) => "blank" in p).map(() => "")) }));
-  const [checked, setChecked] = useState(() => LETTERS_OBJ(false));
-  const [score, setScore] = useState(() => LETTERS_OBJ(null));
+  const [sentences, setSentences] = useState(() => ({ ...LETTERS_OBJ(null), MIX: null, REVIEW: null, M: _initM }));
+  const [inputs, setInputs] = useState(() => ({ ...LETTERS_OBJ([]), MIX: [], REVIEW: [], M: _initM.map((s) => s.parts.filter((p) => "blank" in p).map(() => "")) }));
+  const [checked, setChecked] = useState(() => ({ ...LETTERS_OBJ(false), MIX: false, REVIEW: false }));
+  const [score, setScore] = useState(() => ({ ...LETTERS_OBJ(null), MIX: null, REVIEW: null }));
   const [soundOn, setSoundOn] = useState(() => localStorage.getItem("vs_sound") !== "false");
 
   // Historie
@@ -257,6 +286,17 @@ export default function App() {
   const [aiManageLetter, setAiManageLetter] = useState("M");
   const [aiManageSentences, setAiManageSentences] = useState([]);
   const [aiManageLoading, setAiManageLoading] = useState(false);
+  const [problemSents, setProblemSents] = useState(null);
+  const [problemSentsUser, setProblemSentsUser] = useState(null);
+  const [problemSentsLoading, setProblemSentsLoading] = useState(false);
+  const [streakData, setStreakData] = useState(null);
+  const [achievements, setAchievements] = useState(null);
+  const [achievementToast, setAchievementToast] = useState(null);
+  const [showTahak, setShowTahak] = useState(false);
+  const [tahakTab, setTahakTab] = useState("M");
+  const currentUserRef = useRef(null);
+  const prevAchievementsRef = useRef(null);
+  const toastTimerRef = useRef(null);
 
   // ── Persist settings ────────────────────────────────────────────────────
   useEffect(() => { localStorage.setItem("vs_dark", darkMode); }, [darkMode]);
@@ -501,6 +541,66 @@ export default function App() {
     }
   };
 
+  const handleDeleteByModel = async (model) => {
+    if (!model || !window.confirm(`Smazat všechny AI věty od modelu "${model}"?`)) return;
+    try {
+      await fetch("/api/ai-sentences-by-model", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model }),
+      });
+      await loadAiSettings();
+      await loadAiManageSentences(aiManageLetter);
+    } catch {
+      setAiNotice({ type: "error", text: "Nepodařilo se smazat věty modelu." });
+    }
+  };
+
+  const loadProblemSents = useCallback(async (userId) => {
+    if (!userId) return;
+    setProblemSentsLoading(true);
+    try {
+      const res = await fetch(`/api/stats/problem-sentences?userId=${userId}&limit=20`);
+      setProblemSents(await res.json());
+    } catch { setProblemSents([]); }
+    setProblemSentsLoading(false);
+  }, []);
+
+  const loadStreak = useCallback(async (userId) => {
+    if (!userId) return;
+    try {
+      const res = await fetch(`/api/streak?userId=${userId}`);
+      setStreakData(await res.json());
+    } catch {}
+  }, []);
+
+  const loadAchievements = useCallback(async (userId, checkNew = false) => {
+    if (!userId) return;
+    try {
+      const res = await fetch(`/api/achievements?userId=${userId}`);
+      const data = await res.json();
+      if (checkNew && prevAchievementsRef.current) {
+        const prevEarned = new Set(prevAchievementsRef.current.filter((a) => a.earned).map((a) => a.id));
+        const newlyEarned = data.filter((a) => a.earned && !prevEarned.has(a.id));
+        if (newlyEarned.length > 0) {
+          if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+          setAchievementToast(newlyEarned[0]);
+          toastTimerRef.current = setTimeout(() => setAchievementToast(null), 4000);
+        }
+      }
+      prevAchievementsRef.current = data;
+      setAchievements(data);
+    } catch {}
+  }, []);
+
+  useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
+  useEffect(() => {
+    if (currentUser?.id) {
+      loadStreak(currentUser.id);
+      loadAchievements(currentUser.id);
+    }
+  }, [currentUser?.id, loadStreak, loadAchievements]);
+
   // ── Zvuk ────────────────────────────────────────────────────────────────
   const playSound = useCallback((type) => {
     if (!soundOn) return;
@@ -537,19 +637,47 @@ export default function App() {
     settingsKeyRef.current = key;
     const letter = activeTabRef.current;
     const picked = pickSentences(letter, sentenceCount, activeCats);
-    setSentences({ ...LETTERS_OBJ(null), [letter]: picked });
-    setInputs({ ...LETTERS_OBJ([]), [letter]: picked.map((s) => s.parts.filter((p) => "blank" in p).map(() => "")) });
-    setChecked(LETTERS_OBJ(false));
-    setScore(LETTERS_OBJ(null));
+    setSentences({ ...LETTERS_OBJ(null), MIX: null, REVIEW: null, [letter]: picked });
+    setInputs({ ...LETTERS_OBJ([]), MIX: [], REVIEW: [], [letter]: picked.map((s) => s.parts.filter((p) => "blank" in p).map(() => "")) });
+    setChecked({ ...LETTERS_OBJ(false), MIX: false, REVIEW: false });
+    setScore({ ...LETTERS_OBJ(null), MIX: null, REVIEW: null });
   }, [sentenceCount, activeCats]);
 
   const loadSentences = useCallback(async (letter) => {
+    if (letter === "REVIEW") {
+      const uid = currentUserRef.current?.id;
+      if (!uid) { setSentences((prev) => ({ ...prev, REVIEW: [] })); return; }
+      try {
+        const res = await fetch(`/api/mistakes?userId=${uid}&limit=15`);
+        if (res.ok) {
+          const mistakes = await res.json();
+          const reviewSents = mistakes.filter((m) => m.parts).map((m) => ({ parts: m.parts, _source: "review" }));
+          setSentences((prev) => ({ ...prev, REVIEW: reviewSents }));
+          setInputs((prev) => ({ ...prev, REVIEW: reviewSents.map((s) => s.parts.filter((p) => "blank" in p).map(() => "")) }));
+          setChecked((prev) => ({ ...prev, REVIEW: false }));
+          setScore((prev) => ({ ...prev, REVIEW: null }));
+          sessionStartRef.current = Date.now();
+          return;
+        }
+      } catch {}
+      setSentences((prev) => ({ ...prev, REVIEW: [] }));
+      return;
+    }
     let aiSentences = [];
     try {
-      const res = await fetch(`/api/ai-sentences?letter=${letter}`);
-      if (res.ok) aiSentences = await res.json();
+      if (letter === "MIX") {
+        const results = await Promise.allSettled(
+          LETTERS.map((l) => fetch(`/api/ai-sentences?letter=${l}`).then((r) => r.ok ? r.json() : []))
+        );
+        aiSentences = results.flatMap((r) => r.status === "fulfilled" ? r.value : []);
+      } else {
+        const res = await fetch(`/api/ai-sentences?letter=${letter}`);
+        if (res.ok) aiSentences = await res.json();
+      }
     } catch {}
-    const picked = pickSentences(letter, sentenceCount, activeCats, aiSentences);
+    const seenSigs = getSeenSigs(letter);
+    const picked = pickSentences(letter, sentenceCount, activeCats, aiSentences, seenSigs);
+    addSeenSigs(letter, picked.map((s) => s.parts.map((p) => ("text" in p ? p.text : p.blank)).join("").replace(/\s+/g, " ").trim().toLowerCase()));
     setSentences((prev) => ({ ...prev, [letter]: picked }));
     setInputs((prev) => ({ ...prev, [letter]: picked.map((s) => s.parts.filter((p) => "blank" in p).map(() => "")) }));
     setChecked((prev) => ({ ...prev, [letter]: false }));
@@ -584,19 +712,21 @@ export default function App() {
         total++;
         const given = inputs[activeTab][si]?.[bi] || "";
         if (given.toLowerCase() === part.blank.toLowerCase()) correct++;
-        else mistakes.push({ sentence: sentenceText, expected: part.blank, given: given || "—" });
+        else mistakes.push({ sentence: sentenceText, expected: part.blank, given: given || "—", parts: sentence.parts });
       });
     });
     setScore((prev) => ({ ...prev, [activeTab]: { correct, total } }));
     setChecked((prev) => ({ ...prev, [activeTab]: true }));
     playSound(correct === total ? "correct" : "wrong");
-    const duration_s = Math.round((Date.now() - sessionStartRef.current) / 1000);
-    fetch("/api/sessions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ letter: activeTab, correct, total, mistakes, userId: currentUser?.id, duration_s }),
-    }).catch(() => {});
-  }, [sentences, inputs, activeTab, playSound, currentUser]);
+    if (activeTab !== "REVIEW") {
+      const duration_s = Math.round((Date.now() - sessionStartRef.current) / 1000);
+      fetch("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ letter: activeTab, correct, total, mistakes, userId: currentUser?.id, duration_s }),
+      }).then(() => { if (currentUser?.id) { loadStreak(currentUser.id); loadAchievements(currentUser.id, true); } }).catch(() => {});
+    }
+  }, [sentences, inputs, activeTab, playSound, currentUser, loadStreak, loadAchievements]);
 
   const clearInputs = () => {
     const s = sentences[activeTab];
@@ -646,8 +776,9 @@ export default function App() {
     const header = isParent
       ? ["Datum", "Čas", "Trvání", "Profil", "Písmeno", "Správně", "Celkem", "Přesnost", "Stav", "Věta", "Napsáno", "Správně má být"]
       : ["Datum", "Čas", "Trvání", "Písmeno", "Správně", "Celkem", "Přesnost", "Stav", "Věta", "Napsáno", "Správně má být"];
+    const toDate = (ts) => new Date(typeof ts === "string" && !ts.endsWith("Z") && !ts.includes("+") ? ts.replace(" ", "T") + "Z" : ts);
     const rows = sessions.flatMap((s) => {
-      const d = new Date(s.timestamp);
+      const d = toDate(s.timestamp);
       const pct = s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0;
       const dur = s.duration_s ? `${Math.floor(s.duration_s / 60)}:${String(s.duration_s % 60).padStart(2, "0")}` : "";
       const base = [
@@ -699,7 +830,7 @@ export default function App() {
   };
 
   // ── Derived ───────────────────────────────────────────────────────────────
-  const data = TAB_META[activeTab];
+  const data = TAB_META[activeTab] ?? (activeTab === "REVIEW" ? REVIEW_META : MIX_META);
   const currentSentences = sentences[activeTab];
   const bankSummary = getBankSummary(activeTab);
   const activeAiCount = aiSettings?.ai_counts?.[activeTab] ?? 0;
@@ -737,6 +868,10 @@ export default function App() {
     .hint { font-size: 0.8rem; color: #27ae60; font-style: italic; font-family: 'Nunito', sans-serif; margin-left: 6px; }
     [data-dark="true"] .hint { color: #5dd88a; }
     .history-overlay { position: fixed; inset: 0; z-index: 100; display: flex; justify-content: flex-end; }
+    @keyframes toastIn { from { opacity: 0; transform: translateY(-24px) scale(0.92); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes toastOut { from { opacity: 1; transform: translateY(0) scale(1); } to { opacity: 0; transform: translateY(-16px) scale(0.95); } }
+    .achievement-toast { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); z-index: 200; animation: toastIn 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards; pointer-events: none; }
+    .achievement-toast.hiding { animation: toastOut 0.3s ease forwards; }
     .history-panel { width: min(540px, 100vw); height: 100vh; overflow-y: auto; display: flex; flex-direction: column; box-shadow: -8px 0 32px rgba(0,0,0,0.2); }
     .history-panel::-webkit-scrollbar { width: 6px; }
     .history-panel::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
@@ -1036,6 +1171,37 @@ export default function App() {
                 )}
                 {aiSettings.gemini_key_set && (
                   <div>
+                    <div style={{ marginBottom: 14, padding: "12px 12px", borderRadius: 10, background: t.rowBg, border: `1px solid ${t.border}` }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                        <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.85rem", color: t.text }}>⏰ Auto-generování</span>
+                        <button
+                          className="chip-btn"
+                          onClick={async () => {
+                            const next = !aiSettings.auto_generate_enabled;
+                            await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ auto_generate_enabled: next }) });
+                            await loadAiSettings();
+                          }}
+                          style={{ background: aiSettings.auto_generate_enabled ? "#27ae60" : t.chipInactiveBg, color: aiSettings.auto_generate_enabled ? "white" : t.chipInactiveText, fontSize: "0.78rem" }}
+                        >
+                          {aiSettings.auto_generate_enabled ? "Zapnuto" : "Vypnuto"}
+                        </button>
+                      </div>
+                      {aiSettings.auto_generate_enabled && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", color: t.subtext }}>Interval:</span>
+                          {[3, 7, 14, 30].map((d) => (
+                            <button key={d} className="chip-btn" onClick={async () => { await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ auto_generate_interval_days: d }) }); await loadAiSettings(); }} style={{ background: aiSettings.auto_generate_interval_days === d ? "#2980b9" : t.chipInactiveBg, color: aiSettings.auto_generate_interval_days === d ? "white" : t.chipInactiveText, fontSize: "0.75rem" }}>
+                              {d}d
+                            </button>
+                          ))}
+                          {aiSettings.auto_generate_last_run && (
+                            <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.74rem", color: t.subtext, marginLeft: 4 }}>
+                              naposledy {formatDateTime(aiSettings.auto_generate_last_run)}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", color: t.subtext, marginBottom: 8 }}>
                       Každé generování přidá ~{aiSettings.ai_target_per_generate ?? 20} vět (Google Gemini · zdarma)
                     </div>
@@ -1186,11 +1352,54 @@ export default function App() {
                         );
                       })}
                     </div>
+                    {aiSettings.ai_model_breakdown?.length > 0 && (
+                      <div style={{ marginTop: 16, padding: "12px 12px 8px", borderRadius: 12, background: t.rowBg, border: `1px solid ${t.border}` }}>
+                        <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, marginBottom: 10, fontSize: "0.88rem" }}>
+                          Věty podle modelu
+                        </div>
+                        {aiSettings.ai_model_breakdown.map((item) => (
+                          <div key={item.source_model} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderTop: `1px solid ${t.border}` }}>
+                            <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.82rem", color: t.text, flex: 1 }}>{item.source_model ?? "—"}</span>
+                            <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.82rem", color: t.subtext }}>{item.n} vět</span>
+                            <button className="chip-btn" onClick={() => handleDeleteByModel(item.source_model)} disabled={!!aiGenerating} style={{ background: t.chipInactiveBg, color: "#e74c3c", fontSize: "0.74rem" }}>
+                              🗑 Smazat
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </>
             )}
           </div>
+          {currentUser?.role === "parent" && users && users.length > 0 && (
+            <div style={{ marginTop: 24, borderTop: `1px solid ${t.border}`, paddingTop: 20 }}>
+              <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, marginBottom: 14, fontSize: "1rem" }}>
+                🔴 Problémové věty
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                {users.map((u) => (
+                  <button key={u.id} className="chip-btn" onClick={() => { setProblemSentsUser(u.id); loadProblemSents(u.id); }} style={{ background: problemSentsUser === u.id ? avatarColor(u.id) : t.chipInactiveBg, color: problemSentsUser === u.id ? "white" : t.chipInactiveText, display: "flex", alignItems: "center", gap: 5 }}>
+                    <Avatar user={u} size={14} />
+                    {u.name}
+                  </button>
+                ))}
+              </div>
+              {problemSentsLoading && <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.85rem", color: t.subtext }}>Načítám…</div>}
+              {!problemSentsLoading && problemSents !== null && problemSents.length === 0 && (
+                <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.85rem", color: t.subtext }}>Žádné chyby nenalezeny.</div>
+              )}
+              {!problemSentsLoading && problemSents !== null && problemSents.length > 0 && problemSents.map((item, i) => (
+                <div key={i} style={{ padding: "8px 10px", borderRadius: 8, marginBottom: 6, background: t.rowBg, border: `1px solid ${t.border}` }}>
+                  <div style={{ fontFamily: "'Lora', serif", fontSize: "0.88rem", color: t.text, lineHeight: 1.45 }}>{item.sentence}</div>
+                  <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", color: "#b7412d", marginTop: 3 }}>
+                    {item.errors}× špatně · správně: <strong>{item.expected}</strong>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         {profileModalEl}
       </div>
@@ -1219,6 +1428,11 @@ export default function App() {
               <Avatar user={currentUser} size={26} />
               <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.85rem", color: t.pillText }}>{currentUser.name}</span>
             </div>
+            {streakData && streakData.streak > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 4, background: darkMode ? "#2a1f00" : "#fff3cd", border: "2px solid #f39c12", borderRadius: 10, padding: "5px 10px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.85rem", color: "#c0790d" }} title={`${streakData.streak} dní v řadě!`}>
+                🔥 {streakData.streak}
+              </div>
+            )}
             {currentUser.role === "parent" && (
               <button onClick={() => { loadUsers(); loadAiSettings(); loadAiDebug(); loadAiManageSentences(aiManageLetter); setShowManage(true); }} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 10px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.88rem", color: t.pillText, cursor: "pointer" }}>
                 ⚙️
@@ -1232,6 +1446,9 @@ export default function App() {
             </button>
             <button onClick={() => setDarkMode((d) => !d)} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 12px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.9rem", color: t.pillText, cursor: "pointer" }}>
               {darkMode ? "☀️" : "🌙"}
+            </button>
+            <button onClick={() => setShowTahak(true)} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 14px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.88rem", color: t.pillText, cursor: "pointer" }}>
+              📖 Tahák
             </button>
             <button onClick={loadHistory} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 14px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.88rem", color: t.pillText, cursor: "pointer" }}>
               📊 Historie
@@ -1257,6 +1474,32 @@ export default function App() {
             )}
           </button>
         ))}
+        <button
+          className="tab-btn"
+          onClick={() => setActiveTab("MIX")}
+          style={{ background: activeTab === "MIX" ? MIX_META.accent : t.tabInactiveBg, color: activeTab === "MIX" ? "white" : MIX_META.accent, borderColor: MIX_META.accent, boxShadow: activeTab === "MIX" ? `0 4px 14px ${MIX_META.accent}55` : "0 2px 6px rgba(0,0,0,0.08)" }}
+        >
+          {MIX_META.emoji} MIX
+          {score["MIX"] && (
+            <span style={{ marginLeft: 8, background: "rgba(255,255,255,0.25)", borderRadius: 6, padding: "1px 7px", fontSize: "0.82rem" }}>
+              {score["MIX"].correct}/{score["MIX"].total}
+            </span>
+          )}
+        </button>
+        {currentUser?.role !== "parent" && (
+          <button
+            className="tab-btn"
+            onClick={() => { setSentences((prev) => ({ ...prev, REVIEW: null })); setActiveTab("REVIEW"); }}
+            style={{ background: activeTab === "REVIEW" ? REVIEW_META.accent : t.tabInactiveBg, color: activeTab === "REVIEW" ? "white" : REVIEW_META.accent, borderColor: REVIEW_META.accent, boxShadow: activeTab === "REVIEW" ? `0 4px 14px ${REVIEW_META.accent}55` : "0 2px 6px rgba(0,0,0,0.08)" }}
+          >
+            {REVIEW_META.emoji} Procvič chyby
+            {score["REVIEW"] && (
+              <span style={{ marginLeft: 8, background: "rgba(255,255,255,0.25)", borderRadius: 6, padding: "1px 7px", fontSize: "0.82rem" }}>
+                {score["REVIEW"].correct}/{score["REVIEW"].total}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Settings bar */}
@@ -1289,7 +1532,7 @@ export default function App() {
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={{ fontSize: "1.7rem" }}>{data.emoji}</span>
-                <span style={{ fontSize: "1.15rem", fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: data.color }}>Po {activeTab}</span>
+                <span style={{ fontSize: "1.15rem", fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: data.color }}>{activeTab === "MIX" ? "Všechna písmena" : activeTab === "REVIEW" ? "Procvič chyby" : `Po ${activeTab}`}</span>
               </div>
               {bankSummary && (
                 <div style={{ marginTop: 4, fontSize: "0.8rem", fontFamily: "'Nunito', sans-serif", color: t.subtext }}>
@@ -1405,7 +1648,7 @@ export default function App() {
               </div>
             </div>
             <div style={{ display: "flex", borderBottom: `1px solid ${t.border}`, padding: "0 20px", background: t.panelBg, position: "sticky", top: 57, zIndex: 1 }}>
-              {[["sessions", "Sezení"], ["stats", "Statistiky"]].map(([key, label]) => (
+              {[["sessions", "Sezení"], ["stats", "Statistiky"], ["badges", "🏅 Odznaky"]].map(([key, label]) => (
                 <button key={key} onClick={() => setHistTab(key)} style={{ background: "none", border: "none", borderBottom: histTab === key ? `3px solid ${data.accent}` : "3px solid transparent", padding: "10px 16px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.9rem", color: histTab === key ? data.accent : t.subtext, cursor: "pointer", marginBottom: -1 }}>
                   {label}
                 </button>
@@ -1435,7 +1678,7 @@ export default function App() {
                     .map((session) => {
                     const meta = TAB_META[session.letter];
                     const pct = session.total > 0 ? Math.round((session.correct / session.total) * 100) : 0;
-                    const date = new Date(session.timestamp);
+                    const date = new Date(typeof session.timestamp === "string" && !session.timestamp.endsWith("Z") && !session.timestamp.includes("+") ? session.timestamp.replace(" ", "T") + "Z" : session.timestamp);
                     const sessionUser = currentUser.role === "parent" && users ? users.find((u) => u.id === session.user_id) : null;
                     const durStr = session.duration_s ? `⏱ ${Math.floor(session.duration_s / 60)}:${String(session.duration_s % 60).padStart(2, "0")}` : null;
                     return (
@@ -1543,10 +1786,125 @@ export default function App() {
                           </div>
                         ))}
                       </div>
+                      {sessions && sessions.length > 0 && (() => {
+                        const tsToDate = (ts) => new Date(typeof ts === "string" && !ts.endsWith("Z") && !ts.includes("+") ? ts.replace(" ", "T") + "Z" : ts);
+                        const filtered = sessions.filter((s) => histFilterUser === null || s.user_id === histFilterUser);
+                        const byDay = {};
+                        filtered.forEach((s) => {
+                          const day = tsToDate(s.timestamp).toISOString().slice(0, 10);
+                          if (!byDay[day]) byDay[day] = { correct: 0, total: 0 };
+                          byDay[day].correct += s.correct;
+                          byDay[day].total += s.total;
+                        });
+                        const days = Array.from({ length: 14 }, (_, i) => {
+                          const d = new Date();
+                          d.setDate(d.getDate() - (13 - i));
+                          return d.toISOString().slice(0, 10);
+                        });
+                        const chartData = days.map((day) => ({
+                          day,
+                          label: new Date(day + "T12:00:00Z").toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric" }),
+                          pct: byDay[day] && byDay[day].total > 0 ? Math.round(byDay[day].correct / byDay[day].total * 100) : null,
+                        }));
+                        if (!chartData.some((d) => d.pct !== null)) return null;
+                        const BAR_W = 18, GAP = 3, H = 80, TOTAL_W = 14 * (BAR_W + GAP);
+                        return (
+                          <div style={{ marginTop: 20 }}>
+                            <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, marginBottom: 8, fontSize: "0.88rem" }}>Přesnost — posledních 14 dní</div>
+                            <svg width="100%" viewBox={`0 0 ${TOTAL_W} ${H + 22}`} style={{ display: "block", overflow: "visible" }}>
+                              {chartData.map((d, i) => {
+                                const x = i * (BAR_W + GAP);
+                                if (d.pct === null) return (
+                                  <g key={d.day}>
+                                    <rect x={x} y={H - 4} width={BAR_W} height={4} fill={darkMode ? "#253040" : "#eee"} rx={2} />
+                                  </g>
+                                );
+                                const barH = Math.max(4, Math.round(d.pct * H / 100));
+                                const color = d.pct >= 80 ? "#27ae60" : d.pct >= 50 ? "#f39c12" : "#e74c3c";
+                                return (
+                                  <g key={d.day}>
+                                    <rect x={x} y={H - barH} width={BAR_W} height={barH} fill={color} rx={3} opacity={0.9} />
+                                    <text x={x + BAR_W / 2} y={H + 14} textAnchor="middle" fontSize={8} fill={darkMode ? "#6d88a0" : "#aaa"} fontFamily="Nunito, sans-serif">{d.label}</text>
+                                    <title>{d.day}: {d.pct}%</title>
+                                  </g>
+                                );
+                              })}
+                              <line x1={0} y1={H} x2={TOTAL_W} y2={H} stroke={darkMode ? "#253040" : "#ddd"} strokeWidth={1} />
+                            </svg>
+                          </div>
+                        );
+                      })()}
                     </>
                   )}
                 </>
               )}
+              {histTab === "badges" && (
+                <div>
+                  {achievements === null && <div style={{ textAlign: "center", color: t.subtext, fontFamily: "'Nunito', sans-serif", padding: 40 }}>Načítám…</div>}
+                  {achievements !== null && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                      {achievements.map((a) => (
+                        <div key={a.id} style={{ padding: "14px 12px", borderRadius: 14, background: a.earned ? (darkMode ? "#1a2a1a" : "#eefaf1") : t.rowBg, border: `2px solid ${a.earned ? "#27ae60" : t.border}`, opacity: a.earned ? 1 : 0.5, transition: "all 0.2s" }}>
+                          <div style={{ fontSize: "1.8rem", marginBottom: 6 }}>{a.emoji}</div>
+                          <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.88rem", color: a.earned ? (darkMode ? "#5dd88a" : "#1a6b30") : t.subtext, marginBottom: 3 }}>{a.name}</div>
+                          <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.75rem", color: t.subtext, lineHeight: 1.35 }}>{a.desc}</div>
+                          {a.earned && <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.72rem", color: "#27ae60", fontWeight: 700, marginTop: 5 }}>✓ Získáno</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tahák overlay */}
+      {showTahak && (
+        <div className="history-overlay" style={{ background: t.overlayBg }} onClick={() => setShowTahak(false)}>
+          <div className="history-panel" style={{ background: t.panelBg }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ padding: "18px 20px 14px", borderBottom: `1px solid ${t.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: t.panelBg, position: "sticky", top: 0, zIndex: 1 }}>
+              <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "1.1rem", color: t.text }}>📖 Tahák — vyjmenovaná slova</span>
+              <button onClick={() => setShowTahak(false)} style={{ background: "none", border: "none", fontSize: "1.4rem", cursor: "pointer", color: t.subtext, lineHeight: 1 }}>✕</button>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "12px 20px 0", borderBottom: `1px solid ${t.border}`, paddingBottom: 10, position: "sticky", top: 57, background: t.panelBg, zIndex: 1 }}>
+              {LETTERS.map((l) => (
+                <button key={l} className="chip-btn" onClick={() => setTahakTab(l)} style={{ background: tahakTab === l ? TAB_META[l].accent : t.chipInactiveBg, color: tahakTab === l ? "white" : t.chipInactiveText, fontWeight: 800 }}>
+                  {TAB_META[l].emoji} {l}
+                </button>
+              ))}
+            </div>
+            <div style={{ padding: "16px 20px" }}>
+              {(() => {
+                const entry = TAHAK_DATA[tahakTab];
+                const meta = TAB_META[tahakTab];
+                return (
+                  <>
+                    <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: meta.color, marginBottom: 12, fontSize: "1rem" }}>
+                      Vyjmenovaná slova po {tahakTab}
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
+                      {entry.words.map((w) => (
+                        <span key={w} style={{ background: darkMode ? `${meta.accent}22` : meta.bg, color: meta.color, border: `2px solid ${meta.accent}55`, borderRadius: 10, padding: "5px 12px", fontFamily: "'Lora', serif", fontWeight: 600, fontSize: "0.95rem" }}>{w}</span>
+                      ))}
+                    </div>
+                    {entry.note && (
+                      <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.88rem", color: t.subtext, marginBottom: 16, padding: "10px 12px", background: t.rowBg, borderRadius: 10, border: `1px solid ${t.border}`, fontStyle: "italic" }}>
+                        {entry.note}
+                      </div>
+                    )}
+                    <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: "#c0392b", marginBottom: 10, fontSize: "0.88rem" }}>
+                      ⚠️ Chytáky — píší se s i/í
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {entry.tricky.map((w) => (
+                        <span key={w} style={{ background: darkMode ? "#2a1010" : "#fff5f5", color: "#c0392b", border: "2px solid #f1948a", borderRadius: 10, padding: "5px 12px", fontFamily: "'Lora', serif", fontWeight: 600, fontSize: "0.95rem" }}>{w}</span>
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1555,6 +1913,19 @@ export default function App() {
       {managePanel}
       {pinModalEl}
       {profileModalEl}
+
+      {achievementToast && (
+        <div className="achievement-toast">
+          <div style={{ background: darkMode ? "#1a2a1a" : "#ffffff", border: "2px solid #27ae60", borderRadius: 16, padding: "14px 22px", display: "flex", alignItems: "center", gap: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.18)", minWidth: 220 }}>
+            <span style={{ fontSize: "2rem" }}>{achievementToast.emoji}</span>
+            <div>
+              <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.78rem", color: "#27ae60", letterSpacing: "0.05em", textTransform: "uppercase" }}>Nový odznak!</div>
+              <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "1rem", color: darkMode ? "#d8e4f0" : "#2c3e50" }}>{achievementToast.name}</div>
+              <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", color: darkMode ? "#6d88a0" : "#7f8c8d", marginTop: 2 }}>{achievementToast.desc}</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

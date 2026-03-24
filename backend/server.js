@@ -209,6 +209,15 @@ function getAiOverview() {
   return overview;
 }
 
+function getAiModelBreakdown() {
+  return db.prepare(`
+    SELECT source_model, COUNT(*) AS n
+    FROM ai_sentences
+    GROUP BY source_model
+    ORDER BY n DESC
+  `).all();
+}
+
 async function listGeminiGenerateContentModels(apiKey) {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
@@ -434,15 +443,19 @@ app.get("/api/settings", (req, res) => {
     gemini_key_set: keySet,
     ai_counts: getAiCounts(),
     ai_overview: getAiOverview(),
+    ai_model_breakdown: getAiModelBreakdown(),
     ai_status: loadAiStatus(),
     ai_limit_per_letter: AI_SENTENCE_LIMIT_PER_LETTER,
     ai_target_per_generate: GEMINI_SENTENCE_TARGET,
+    auto_generate_enabled: getSetting("auto_generate_enabled") === "true",
+    auto_generate_interval_days: parseInt(getSetting("auto_generate_interval_days") || "7"),
+    auto_generate_last_run: getSetting("auto_generate_last_run") || null,
   });
 });
 
 // Ulož Gemini API klíč (nebo ho smaž prázdným stringem)
 app.put("/api/settings", (req, res) => {
-  const { gemini_key } = req.body;
+  const { gemini_key, auto_generate_enabled, auto_generate_interval_days } = req.body;
   if (gemini_key !== undefined) {
     if (gemini_key === "") {
       db.prepare("DELETE FROM settings WHERE key = 'gemini_key'").run();
@@ -450,6 +463,8 @@ app.put("/api/settings", (req, res) => {
       setSetting("gemini_key", gemini_key);
     }
   }
+  if (auto_generate_enabled !== undefined) setSetting("auto_generate_enabled", String(auto_generate_enabled));
+  if (auto_generate_interval_days !== undefined) setSetting("auto_generate_interval_days", String(Math.max(1, parseInt(auto_generate_interval_days) || 7)));
   res.json({ ok: true });
 });
 
@@ -520,6 +535,14 @@ app.post("/api/generate", async (req, res) => {
 app.delete("/api/ai-sentences/:letter", (req, res) => {
   db.prepare("DELETE FROM ai_sentences WHERE letter = ?").run(req.params.letter);
   res.json({ ok: true });
+});
+
+// Smaž všechny AI věty od konkrétního modelu
+app.delete("/api/ai-sentences-by-model", (req, res) => {
+  const { model } = req.body;
+  if (!model) return res.status(400).json({ error: "Chybí model" });
+  const result = db.prepare("DELETE FROM ai_sentences WHERE source_model = ?").run(model);
+  res.json({ ok: true, deleted: result.changes });
 });
 
 app.delete("/api/ai-sentence/:id", (req, res) => {
@@ -681,6 +704,162 @@ app.get("/api/stats", (req, res) => {
   res.json(rows);
 });
 
+// Problémové věty — věty, ve kterých daný uživatel nejčastěji chybuje
+app.get("/api/stats/problem-sentences", (req, res) => {
+  const { userId, limit = 30 } = req.query;
+  if (!userId) return res.status(400).json({ error: "Chybí userId" });
+  const sessions = db
+    .prepare("SELECT mistakes FROM sessions WHERE user_id = ? ORDER BY timestamp DESC LIMIT 300")
+    .all(parseInt(userId));
+  const counts = new Map();
+  for (const session of sessions) {
+    let mistakes;
+    try { mistakes = JSON.parse(session.mistakes); } catch { continue; }
+    for (const m of mistakes) {
+      if (!m.sentence) continue;
+      const key = m.sentence;
+      if (!counts.has(key)) counts.set(key, { sentence: key, errors: 0, expected: m.expected });
+      counts.get(key).errors++;
+    }
+  }
+  const result = [...counts.values()].sort((a, b) => b.errors - a.errors).slice(0, parseInt(limit));
+  res.json(result);
+});
+
+// Streak — počet po sobě jdoucích dní s alespoň jedním cvičením
+app.get("/api/streak", (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.json({ streak: 0, last_date: null });
+  const rows = db
+    .prepare("SELECT date(timestamp) AS day FROM sessions WHERE user_id = ? GROUP BY date(timestamp) ORDER BY day DESC LIMIT 60")
+    .all(parseInt(userId));
+  if (rows.length === 0) return res.json({ streak: 0, last_date: null });
+  const days = rows.map((r) => r.day);
+  const today = new Date().toISOString().slice(0, 10);
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  if (days[0] !== today && days[0] !== yesterday) return res.json({ streak: 0, last_date: days[0] });
+  let streak = 1;
+  for (let i = 1; i < days.length; i++) {
+    const prev = new Date(days[i - 1] + "T12:00:00Z");
+    const curr = new Date(days[i] + "T12:00:00Z");
+    if (Math.round((prev - curr) / 86400000) === 1) streak++;
+    else break;
+  }
+  res.json({ streak, last_date: days[0] });
+});
+
+// Chybové věty k procvičení — věty kde user chyboval (jen nový formát s parts)
+app.get("/api/mistakes", (req, res) => {
+  const { userId, limit = 20 } = req.query;
+  if (!userId) return res.json([]);
+  const sessions = db
+    .prepare("SELECT mistakes FROM sessions WHERE user_id = ? AND mistakes != '[]' ORDER BY timestamp DESC LIMIT 150")
+    .all(parseInt(userId));
+  const seen = new Map();
+  for (const session of sessions) {
+    let mistakes;
+    try { mistakes = JSON.parse(session.mistakes); } catch { continue; }
+    for (const m of mistakes) {
+      if (!m.sentence || !m.parts) continue;
+      if (!seen.has(m.sentence)) seen.set(m.sentence, { ...m, errors: 0 });
+      seen.get(m.sentence).errors++;
+    }
+  }
+  const result = [...seen.values()].sort((a, b) => b.errors - a.errors).slice(0, parseInt(limit));
+  res.json(result);
+});
+
+// ── Achievementy ──────────────────────────────────────────────────────────
+const ACHIEVEMENT_DEFS = [
+  { id: "first_session",   emoji: "🌟", name: "První krok",       desc: "Dokončil jsi první cvičení" },
+  { id: "perfect_score",   emoji: "💯", name: "Perfektní!",       desc: "100 % správně v jednom cvičení" },
+  { id: "streak_3",        emoji: "🔥", name: "3 dny v řadě",     desc: "Cvičil jsi 3 dny za sebou" },
+  { id: "streak_7",        emoji: "🏅", name: "Týden v řadě",     desc: "Cvičil jsi 7 dní za sebou" },
+  { id: "sessions_10",     emoji: "💪", name: "Desítka",          desc: "Dokončil jsi 10 cvičení" },
+  { id: "sessions_50",     emoji: "🎓", name: "Padesátník",       desc: "Dokončil jsi 50 cvičení" },
+  { id: "all_letters",     emoji: "🌈", name: "Všechna písmena",  desc: "Procvičil jsi všech 8 písmen" },
+  { id: "accuracy_master", emoji: "⭐", name: "Mistr přesnosti",  desc: "Průměrná přesnost ≥ 90 % (min. 10 sezení)" },
+];
+const VALID_LETTERS_SET = new Set(["M", "P", "L", "B", "F", "S", "V", "Z"]);
+
+app.get("/api/achievements", (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.json([]);
+  const uid = parseInt(userId);
+  const sessions = db.prepare("SELECT correct, total, letter FROM sessions WHERE user_id = ?").all(uid);
+  const streakRows = db
+    .prepare("SELECT date(timestamp) AS day FROM sessions WHERE user_id = ? GROUP BY date(timestamp) ORDER BY day DESC LIMIT 60")
+    .all(uid);
+  const days = streakRows.map((r) => r.day);
+  const today = new Date().toISOString().slice(0, 10);
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  let streak = 0;
+  if (days.length > 0 && (days[0] === today || days[0] === yesterday)) {
+    streak = 1;
+    for (let i = 1; i < days.length; i++) {
+      const prev = new Date(days[i - 1] + "T12:00:00Z");
+      const curr = new Date(days[i] + "T12:00:00Z");
+      if (Math.round((prev - curr) / 86400000) === 1) streak++;
+      else break;
+    }
+  }
+  const count = sessions.length;
+  const hasPerfect = sessions.some((s) => s.total > 0 && s.correct === s.total);
+  const lettersUsed = new Set(sessions.map((s) => s.letter).filter((l) => VALID_LETTERS_SET.has(l)));
+  const totalBlanks = sessions.reduce((a, s) => a + s.total, 0);
+  const totalCorrect = sessions.reduce((a, s) => a + s.correct, 0);
+  const avgAcc = totalBlanks > 0 ? (totalCorrect / totalBlanks) * 100 : 0;
+  const earned = new Set();
+  if (count >= 1) earned.add("first_session");
+  if (hasPerfect) earned.add("perfect_score");
+  if (streak >= 3) earned.add("streak_3");
+  if (streak >= 7) earned.add("streak_7");
+  if (count >= 10) earned.add("sessions_10");
+  if (count >= 50) earned.add("sessions_50");
+  if (lettersUsed.size >= 8) earned.add("all_letters");
+  if (count >= 10 && avgAcc >= 90) earned.add("accuracy_master");
+  res.json(ACHIEVEMENT_DEFS.map((a) => ({ ...a, earned: earned.has(a.id) })));
+});
+
+// ── Auto-generování (cron) ─────────────────────────────────────────────────
+async function runAutoGenerate() {
+  try {
+    if (getSetting("auto_generate_enabled") !== "true") return;
+    const apiKey = getSetting("gemini_key");
+    if (!apiKey) return;
+    const intervalDays = parseInt(getSetting("auto_generate_interval_days") || "7");
+    const lastRun = getSetting("auto_generate_last_run");
+    if (lastRun) {
+      const daysSince = (Date.now() - new Date(lastRun).getTime()) / 86400000;
+      if (daysSince < intervalDays) return;
+    }
+    const toGenerate = ["M", "P", "L", "B", "F", "S", "V", "Z"].filter((l) => {
+      const n = db.prepare("SELECT COUNT(*) AS n FROM ai_sentences WHERE letter = ? AND review_status = 'active'").get(l)?.n || 0;
+      return n < AI_SENTENCE_LIMIT_PER_LETTER * 0.8;
+    });
+    if (toGenerate.length === 0) return;
+    setSetting("auto_generate_last_run", new Date().toISOString());
+    console.log(`[Auto-generování] Spouštím pro: ${toGenerate.join(", ")}`);
+    for (const letter of toGenerate) {
+      try {
+        const sentences = await generateSentencesFromGemini(letter, apiKey);
+        if (sentences.length > 0) {
+          const status = loadAiStatus();
+          const ins = db.prepare("INSERT INTO ai_sentences (letter, sentence_json, review_status, source_model) VALUES (?, ?, 'active', ?)");
+          db.transaction((sents) => { for (const s of sents) ins.run(letter, JSON.stringify(s), status.last_model || null); })(sentences);
+          trimAiSentenceCache(letter);
+          console.log(`[Auto-generování] ${letter}: +${sentences.length} vět`);
+        }
+        await sleep(3000);
+      } catch (e) {
+        console.error(`[Auto-generování] Chyba pro ${letter}:`, e.message);
+      }
+    }
+  } catch (e) {
+    console.error("[Auto-generování] Neočekávaná chyba:", e.message);
+  }
+}
+
 // ── SPA fallback ──────────────────────────────────────────────────────────
 app.get("*", (req, res) => {
   res.sendFile(join(PUBLIC_DIR, "index.html"));
@@ -692,5 +871,7 @@ export { app, db };
 if (process.env.NODE_ENV !== "test") {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server běží na portu ${PORT}`);
+    setTimeout(runAutoGenerate, 5 * 60 * 1000);
+    setInterval(runAutoGenerate, 60 * 60 * 1000);
   });
 }

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="90" fill="#2c3e6e"/>
+  <text x="256" y="210" font-family="Georgia,serif" font-size="150" font-weight="bold" text-anchor="middle" fill="#f0c040">VS</text>
+  <text x="256" y="360" font-family="Georgia,serif" font-size="72" text-anchor="middle" fill="rgba(255,255,255,0.7)">y / i</text>
+</svg>

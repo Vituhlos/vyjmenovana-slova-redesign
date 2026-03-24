@@ -116,6 +116,8 @@ export default function App() {
   const [checked, setChecked] = useState(() => LETTERS_OBJ(false));
   const [score, setScore] = useState(() => LETTERS_OBJ(null));
 
+  const [soundOn, setSoundOn] = useState(() => localStorage.getItem("vs_sound") !== "false");
+
   const [showHistory, setShowHistory] = useState(false);
   const [histTab, setHistTab] = useState("sessions");
   const [sessions, setSessions] = useState(null);
@@ -125,6 +127,35 @@ export default function App() {
   useEffect(() => { localStorage.setItem("vs_dark", darkMode); }, [darkMode]);
   useEffect(() => { localStorage.setItem("vs_count", sentenceCount); }, [sentenceCount]);
   useEffect(() => { localStorage.setItem("vs_cats", JSON.stringify(activeCats)); }, [activeCats]);
+  useEffect(() => { localStorage.setItem("vs_sound", soundOn); }, [soundOn]);
+
+  // ── Zvuk ───────────────────────────────────────────────────────────────
+  const playSound = useCallback((type) => {
+    if (!soundOn) return;
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const gain = ctx.createGain();
+      gain.connect(ctx.destination);
+      const osc = ctx.createOscillator();
+      osc.connect(gain);
+      if (type === "correct") {
+        osc.frequency.setValueAtTime(523, ctx.currentTime);
+        osc.frequency.setValueAtTime(659, ctx.currentTime + 0.12);
+        osc.frequency.setValueAtTime(784, ctx.currentTime + 0.24);
+        gain.gain.setValueAtTime(0.25, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.45);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.45);
+      } else {
+        osc.frequency.setValueAtTime(330, ctx.currentTime);
+        osc.frequency.setValueAtTime(220, ctx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.3);
+      }
+    } catch {}
+  }, [soundOn]);
 
   // ── Reload on settings change (skip unchanged / initial render) ────────
   const activeTabRef = useRef("M");
@@ -187,12 +218,13 @@ export default function App() {
     });
     setScore((prev) => ({ ...prev, [activeTab]: { correct, total } }));
     setChecked((prev) => ({ ...prev, [activeTab]: true }));
+    playSound(correct === total ? "correct" : "wrong");
     fetch("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ letter: activeTab, correct, total, mistakes }),
     }).catch(() => {});
-  }, [sentences, inputs, activeTab]);
+  }, [sentences, inputs, activeTab, playSound]);
 
   const clearInputs = () => {
     const s = sentences[activeTab];
@@ -308,6 +340,18 @@ export default function App() {
         .mistake-row { padding: 7px 14px; font-family: 'Lora', serif; font-size: 0.88rem; }
         .chip-btn { font-family: 'Nunito', sans-serif; font-size: 0.8rem; font-weight: 700; border: none; border-radius: 8px; padding: 4px 11px; cursor: pointer; transition: all 0.15s; }
         .chip-btn:hover { opacity: 0.8; }
+        @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-5px)} 40%{transform:translateX(5px)} 60%{transform:translateX(-4px)} 80%{transform:translateX(4px)} }
+        @keyframes pop { 0%{transform:scale(1)} 50%{transform:scale(1.18)} 100%{transform:scale(1)} }
+        .anim-wrong { animation: shake 0.4s ease; }
+        .anim-correct { animation: pop 0.3s ease; }
+        @media (max-width: 600px) {
+          .blank-input { width: 44px; height: 38px; font-size: 16px; border-bottom-width: 3px; }
+          .sentence-row { font-size: 1rem; padding: 12px 12px; line-height: 2.3; }
+          .tab-btn { padding: 8px 14px; font-size: 0.92rem; }
+          .check-btn { padding: 12px 20px; font-size: 0.95rem; min-height: 46px; }
+          .chip-btn { padding: 6px 12px; font-size: 0.82rem; min-height: 34px; }
+          .num { min-width: 22px; height: 22px; font-size: 0.72rem; margin-right: 8px; }
+        }
       `}</style>
 
       {/* ── Header ── */}
@@ -319,6 +363,12 @@ export default function App() {
           Doplň správně <strong>i</strong> nebo <strong>y</strong> (popřípadě <strong>í / ý</strong>)
         </div>
         <div style={{ position: "absolute", top: 6, right: 0, display: "flex", gap: 8 }}>
+          <button
+            onClick={() => setSoundOn((s) => !s)}
+            style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 12px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.9rem", color: t.pillText, cursor: "pointer" }}
+          >
+            {soundOn ? "🔊" : "🔇"}
+          </button>
           <button
             onClick={() => setDarkMode((d) => !d)}
             style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 12px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.9rem", color: t.pillText, cursor: "pointer" }}
@@ -441,10 +491,11 @@ export default function App() {
                     const { bi, blank } = part;
                     const val = inputs[activeTab]?.[si]?.[bi] || "";
                     const isWrong = checked[activeTab] && val.toLowerCase() !== blank.toLowerCase();
+                    const isCorrect = checked[activeTab] && val.toLowerCase() === blank.toLowerCase();
                     return (
                       <span key={pi}>
                         <input
-                          className="blank-input"
+                          className={`blank-input${isWrong ? " anim-wrong" : isCorrect ? " anim-correct" : ""}`}
                           value={val}
                           onChange={(e) => handleInput(si, bi, e.target.value)}
                           onKeyDown={(e) => e.key === "Enter" && checkAnswers()}

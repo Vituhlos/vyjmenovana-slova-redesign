@@ -1,0 +1,13 @@
+{
+  "name": "Vyjmenovaná slova",
+  "short_name": "Vyjm. slova",
+  "description": "Procvičování vyjmenovaných slov — doplňování i/y",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f7fa",
+  "theme_color": "#2c3e6e",
+  "lang": "cs",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

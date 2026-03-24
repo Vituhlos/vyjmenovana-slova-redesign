@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 import Database from "better-sqlite3";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -25,6 +26,11 @@ db.exec(`
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Max 30 požadavků za minutu na celé API
+app.use("/api/", rateLimit({ windowMs: 60_000, max: 30 }));
+// Max 10 uložení výsledků za minutu (jedno cvičení = 1 požadavek)
+app.use("/api/sessions", rateLimit({ windowMs: 60_000, max: 10 }));
 
 // Statické soubory React buildu
 const PUBLIC_DIR = join(__dirname, "public");

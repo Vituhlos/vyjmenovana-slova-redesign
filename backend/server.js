@@ -37,6 +37,22 @@ db.exec(`
   )
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ai_sentences (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    letter       TEXT NOT NULL,
+    sentence_json TEXT NOT NULL,
+    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
 // Migrace: přidej chybějící sloupce do starší DB
 const cols = db.prepare("PRAGMA table_info(sessions)").all();
 if (!cols.find((c) => c.name === "user_id")) {
@@ -49,10 +65,85 @@ if (!cols.find((c) => c.name === "duration_s")) {
 // ── Helpers ───────────────────────────────────────────────────────────────
 const hashPin = (pin) => createHash("sha256").update("vs:" + pin).digest("hex");
 
+const getSetting = (key) => db.prepare("SELECT value FROM settings WHERE key = ?").get(key)?.value ?? null;
+const setSetting = (key, value) => db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, value);
+
+// ── Gemini AI generování vět ──────────────────────────────────────────────
+const WORD_HINTS = {
+  M: "my, mýt, mýdlo, hmyz, myš, hlemýžď, přemýšlet, zamykat, omyl, dmýchat, smýkat, chm-ý-ří, mýtit. Chytáky (mi/mí): mísa, místo, mistr, milý, minuta, míč, minout.",
+  P: "pytel, pýcha, pysk, pyl, kopýto, netopýr, klopýtat, pytlík. Chytáky (pi/pí): pilný, pilot, piknik, pivoňka, pila, píle, píseň, píšťalka, písmo, písek.",
+  L: "lyže, lýtko, lysý, lyra, pelyněk, plytký, blýskat, polykat, plynout, plýtvat, vzlykat, palyhy. Chytáky (li/lí): líný, líbí, list, lípa, liška, líčko, lístek, limonáda.",
+  B: "bydlet, byt, bylina, býk, kobyla, obyčej, bystrý, obyvatel, nábytek, dobytek. Chytáky (bi/bí): bílý, bitva, bič, bizon, bicykl, bída, bílek.",
+  F: "fyzika, fyzický, fyzioterapeut, fyzioterapie, fyziologie, fyzikální. Chytáky (fi/fí): firma, film, fialový, fikus, figura, finance, figurka.",
+  S: "syn, sýr, syrový, sytý, sýkora, sychravo, sypat, sysel, syčet, nasytit, sykavky. Chytáky (si/sí): silnice, síla, silný, sirup, Silvestr, sice.",
+  V: "vy, výr, výt, vyžle, vydra, výskat, vysoký + předpony vy-/vý- (vyhrát, vyjet, výroba, vyprávět...). Chytáky (vi/ví): vidět, vítr, vím, violka, vítěz, vítat, víla, vír, virus, vinice.",
+  Z: "zvyk, jazyk, brzy, nazývat, jazýček. Chytáky (zi/zí): zítra, zima, zimní, zírat, zisk, zívat.",
+};
+
+async function generateSentencesFromGemini(letter, apiKey) {
+  const prompt = `Vygeneruj 25 různých českých vět pro žáky 2.–5. třídy procvičující vyjmenovaná slova po písmenu ${letter}.
+
+Slova k použití: ${WORD_HINTS[letter]}
+
+Pravidla:
+- Každá věta má PRÁVĚ JEDNO doplňovací místo (y/ý nebo i/í)
+- Věty jsou přiměřené dětem, krátké a srozumitelné
+- Zahrň přibližně 5 "chytáků" (slova kde se píše i/í, ne y/ý)
+- Věty musí být gramaticky správné česky
+
+Vrať POUZE JSON pole (žádný markdown, žádný jiný text):
+[
+  {"before": "text před doplňovacím místem vč. písmene před y/ý/i/í", "blank": "y", "after": "zbytek slova a věty"},
+  ...
+]
+
+Příklady správného rozdělení:
+- "myš" → {"before": "Malá m", "blank": "y", "after": "š utekla do nory."}
+- "přemýšlel" → {"before": "Dlouho přem", "blank": "ý", "after": "šlel nad úkolem."}
+- "hmyz" → {"before": "Na louce bzučel hm", "blank": "y", "after": "z."}
+- "mísa" → {"before": "Na stole stála velká m", "blank": "í", "after": "sa s ovocem."}
+- "výr" → {"before": "Na skále seděl v", "blank": "ý", "after": "r."}`;
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.9, maxOutputTokens: 2048 },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error?.message || `Gemini API chyba ${response.status}`);
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) throw new Error("Neplatná odpověď z Gemini — žádné JSON pole");
+
+  const raw = JSON.parse(jsonMatch[0]);
+
+  return raw
+    .filter((s) =>
+      typeof s.before === "string" &&
+      typeof s.after === "string" &&
+      ["y", "ý", "i", "í"].includes(s.blank)
+    )
+    .map((s) => ({
+      parts: [{ text: s.before }, { blank: s.blank }, { text: s.after }],
+    }));
+}
+
 // ── Express ───────────────────────────────────────────────────────────────
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: "2mb" })); // profilovky jsou base64, potřebujeme větší limit
+app.use(express.json({ limit: "2mb" }));
 
 // Rate limiting
 app.use("/api/", rateLimit({ windowMs: 60_000, max: 60 }));
@@ -62,9 +153,75 @@ app.use("/api/sessions", rateLimit({ windowMs: 60_000, max: 10 }));
 const PUBLIC_DIR = join(__dirname, "public");
 app.use(express.static(PUBLIC_DIR));
 
+// ── Nastavení ─────────────────────────────────────────────────────────────
+
+// Vrátí info o nastavení (klíč se nikdy neposílá klientovi)
+app.get("/api/settings", (req, res) => {
+  const keySet = !!getSetting("gemini_key");
+  const counts = {};
+  for (const letter of ["M", "P", "L", "B", "F", "S", "V", "Z"]) {
+    counts[letter] = db.prepare("SELECT COUNT(*) AS n FROM ai_sentences WHERE letter = ?").get(letter).n;
+  }
+  res.json({ gemini_key_set: keySet, ai_counts: counts });
+});
+
+// Ulož Gemini API klíč (nebo ho smaž prázdným stringem)
+app.put("/api/settings", (req, res) => {
+  const { gemini_key } = req.body;
+  if (gemini_key !== undefined) {
+    if (gemini_key === "") {
+      db.prepare("DELETE FROM settings WHERE key = 'gemini_key'").run();
+    } else {
+      setSetting("gemini_key", gemini_key);
+    }
+  }
+  res.json({ ok: true });
+});
+
+// ── AI věty ───────────────────────────────────────────────────────────────
+
+// Vrátí uložené AI věty pro dané písmeno
+app.get("/api/ai-sentences", (req, res) => {
+  const { letter } = req.query;
+  if (!letter) return res.status(400).json({ error: "Chybí písmeno" });
+  const rows = db.prepare("SELECT sentence_json FROM ai_sentences WHERE letter = ? ORDER BY RANDOM() LIMIT 80").all(letter);
+  res.json(rows.map((r) => JSON.parse(r.sentence_json)));
+});
+
+// Vygeneruj nové AI věty pro dané písmeno přes Gemini
+app.post("/api/generate", async (req, res) => {
+  const { letter } = req.body;
+  if (!letter || !["M", "P", "L", "B", "F", "S", "V", "Z"].includes(letter)) {
+    return res.status(400).json({ error: "Neplatné písmeno" });
+  }
+  const apiKey = getSetting("gemini_key");
+  if (!apiKey) return res.status(400).json({ error: "Gemini API klíč není nastaven" });
+
+  try {
+    const sentences = await generateSentencesFromGemini(letter, apiKey);
+    if (sentences.length === 0) throw new Error("Žádné věty se nepodařilo vygenerovat");
+
+    const insert = db.prepare("INSERT INTO ai_sentences (letter, sentence_json) VALUES (?, ?)");
+    const insertMany = db.transaction((sents) => {
+      for (const s of sents) insert.run(letter, JSON.stringify(s));
+    });
+    insertMany(sentences);
+
+    const total = db.prepare("SELECT COUNT(*) AS n FROM ai_sentences WHERE letter = ?").get(letter).n;
+    res.json({ generated: sentences.length, total });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Smaž všechny AI věty pro dané písmeno
+app.delete("/api/ai-sentences/:letter", (req, res) => {
+  db.prepare("DELETE FROM ai_sentences WHERE letter = ?").run(req.params.letter);
+  res.json({ ok: true });
+});
+
 // ── Uživatelé ─────────────────────────────────────────────────────────────
 
-// Vrátí seznam uživatelů (bez pin_hash)
 app.get("/api/users", (req, res) => {
   const users = db
     .prepare("SELECT id, name, role, avatar, created_at FROM users ORDER BY role DESC, name")
@@ -72,7 +229,6 @@ app.get("/api/users", (req, res) => {
   res.json(users);
 });
 
-// Vytvoř uživatele
 app.post("/api/users", (req, res) => {
   const { name, role = "child", pin, avatar } = req.body;
   if (!name) return res.status(400).json({ error: "Chybí jméno" });
@@ -84,7 +240,6 @@ app.post("/api/users", (req, res) => {
   res.json({ id: result.lastInsertRowid });
 });
 
-// Uprav uživatele (jméno, avatar, PIN)
 app.put("/api/users/:id", (req, res) => {
   const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.params.id);
   if (!user) return res.status(404).json({ error: "Uživatel nenalezen" });
@@ -96,13 +251,11 @@ app.put("/api/users/:id", (req, res) => {
   res.json({ ok: true });
 });
 
-// Smaž uživatele
 app.delete("/api/users/:id", (req, res) => {
   db.prepare("DELETE FROM users WHERE id = ?").run(req.params.id);
   res.json({ ok: true });
 });
 
-// Přihlášení (ověř PIN pro rodiče)
 app.post("/api/login", (req, res) => {
   const { userId, pin } = req.body;
   const user = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
@@ -148,7 +301,6 @@ app.get("/api/stats", (req, res) => {
   let where = "";
   if (userId) { where = "WHERE user_id = ?"; params.push(parseInt(userId)); }
   if (byUser === "1") {
-    // Statistiky per-uživatel per-písmeno (jen pro rodiče)
     const rows = db.prepare(`
       SELECT
         user_id,

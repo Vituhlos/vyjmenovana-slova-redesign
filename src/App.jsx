@@ -93,11 +93,11 @@ const _initCats = (() => {
   } catch { return [...SELECTABLE_CATS]; }
 })();
 
-function pickSentences(letter, count, cats) {
+function pickSentences(letter, count, cats, aiSentences = []) {
   // Vybrané kategorie + chytáky vždy
   const selectedCats = cats && cats.length > 0 ? cats : CATEGORY_ORDER.filter((c) => c !== "trickQuestions");
   const catsWithTricks = [...new Set([...selectedCats, "trickQuestions"])];
-  const pool = [...getSentencePoolByCategories(letter, catsWithTricks)];
+  const pool = [...aiSentences, ...getSentencePoolByCategories(letter, catsWithTricks)];
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -184,6 +184,11 @@ export default function App() {
   const [profileError, setProfileError] = useState("");
   const avatarInputRef = useRef(null);
   const sessionStartRef = useRef(Date.now());
+
+  // AI nastavení
+  const [aiSettings, setAiSettings] = useState(null);
+  const [aiKeyInput, setAiKeyInput] = useState("");
+  const [aiGenerating, setAiGenerating] = useState(null); // letter nebo null
 
   // ── Persist settings ────────────────────────────────────────────────────
   useEffect(() => { localStorage.setItem("vs_dark", darkMode); }, [darkMode]);
@@ -303,6 +308,60 @@ export default function App() {
     loadUsers();
   };
 
+  // ── AI nastavení ────────────────────────────────────────────────────────
+  const loadAiSettings = useCallback(async () => {
+    try {
+      const res = await fetch("/api/settings");
+      setAiSettings(await res.json());
+    } catch {
+      setAiSettings({ gemini_key_set: false, ai_counts: {} });
+    }
+  }, []);
+
+  const handleSaveAiKey = async () => {
+    try {
+      await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gemini_key: aiKeyInput }),
+      });
+      setAiKeyInput("");
+      await loadAiSettings();
+    } catch {}
+  };
+
+  const handleDeleteAiKey = async () => {
+    await fetch("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gemini_key: "" }),
+    }).catch(() => {});
+    await loadAiSettings();
+  };
+
+  const handleGenerateAI = async (letter) => {
+    setAiGenerating(letter);
+    try {
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ letter }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Chyba generování");
+      await loadAiSettings();
+    } catch (e) {
+      alert(e.message);
+    }
+    setAiGenerating(null);
+  };
+
+  const handleDeleteAISentences = async (letter) => {
+    if (!window.confirm(`Smazat všechny AI věty pro písmeno ${letter}?`)) return;
+    await fetch(`/api/ai-sentences/${letter}`, { method: "DELETE" }).catch(() => {});
+    await loadAiSettings();
+  };
+
   // ── Zvuk ────────────────────────────────────────────────────────────────
   const playSound = useCallback((type) => {
     if (!soundOn) return;
@@ -345,8 +404,13 @@ export default function App() {
     setScore(LETTERS_OBJ(null));
   }, [sentenceCount, activeCats]);
 
-  const loadSentences = useCallback((letter) => {
-    const picked = pickSentences(letter, sentenceCount, activeCats);
+  const loadSentences = useCallback(async (letter) => {
+    let aiSentences = [];
+    try {
+      const res = await fetch(`/api/ai-sentences?letter=${letter}`);
+      if (res.ok) aiSentences = await res.json();
+    } catch {}
+    const picked = pickSentences(letter, sentenceCount, activeCats, aiSentences);
     setSentences((prev) => ({ ...prev, [letter]: picked }));
     setInputs((prev) => ({ ...prev, [letter]: picked.map((s) => s.parts.filter((p) => "blank" in p).map(() => "")) }));
     setChecked((prev) => ({ ...prev, [letter]: false }));
@@ -739,6 +803,86 @@ export default function App() {
           <button className="check-btn" onClick={openCreate} style={{ marginTop: 16, width: "100%", background: "#2980b9", color: "white" }}>
             + Přidat profil
           </button>
+
+          {/* AI sekce */}
+          <div style={{ marginTop: 24, borderTop: `1px solid ${t.border}`, paddingTop: 20 }}>
+            <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, marginBottom: 14, fontSize: "1rem" }}>
+              🤖 AI generování vět
+            </div>
+            {aiSettings === null && (
+              <div style={{ color: t.subtext, fontFamily: "'Nunito', sans-serif", fontSize: "0.85rem" }}>Načítám…</div>
+            )}
+            {aiSettings !== null && (
+              <>
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.82rem", color: t.subtext, marginBottom: 8 }}>
+                    Gemini API klíč:{" "}
+                    {aiSettings.gemini_key_set
+                      ? <span style={{ color: "#27ae60", fontWeight: 700 }}>✓ nastaven</span>
+                      : <span style={{ color: "#e74c3c" }}>✗ není nastaven</span>}
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input
+                      className="form-input"
+                      type="password"
+                      placeholder={aiSettings.gemini_key_set ? "Změnit klíč…" : "Vložit API klíč…"}
+                      value={aiKeyInput}
+                      onChange={(e) => setAiKeyInput(e.target.value)}
+                      style={{ background: t.inputBg, border: `2px solid ${t.inputBorder}`, color: t.text, flex: 1, padding: "8px 12px", fontSize: "0.9rem" }}
+                    />
+                    <button className="chip-btn" onClick={handleSaveAiKey} disabled={!aiKeyInput} style={{ background: "#2980b9", color: "white", whiteSpace: "nowrap" }}>
+                      Uložit
+                    </button>
+                    {aiSettings.gemini_key_set && (
+                      <button className="chip-btn" onClick={handleDeleteAiKey} style={{ background: t.chipInactiveBg, color: "#e74c3c" }} title="Smazat klíč">
+                        🗑
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {aiSettings.gemini_key_set && (
+                  <div>
+                    <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", color: t.subtext, marginBottom: 8 }}>
+                      Každé generování přidá ~25 vět (Google Gemini · zdarma)
+                    </div>
+                    {LETTERS.map((letter) => {
+                      const count = aiSettings.ai_counts?.[letter] ?? 0;
+                      const isGenerating = aiGenerating === letter;
+                      return (
+                        <div key={letter} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${t.border}` }}>
+                          <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: TAB_META[letter].color, width: 64, fontSize: "0.88rem", flexShrink: 0 }}>
+                            {TAB_META[letter].emoji} Po {letter}
+                          </span>
+                          <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.82rem", color: t.subtext, flex: 1 }}>
+                            {count} vět
+                          </span>
+                          <button
+                            className="chip-btn"
+                            onClick={() => handleGenerateAI(letter)}
+                            disabled={!!aiGenerating}
+                            style={{ background: isGenerating ? t.chipInactiveBg : "#27ae60", color: isGenerating ? t.subtext : "white", fontSize: "0.78rem" }}
+                          >
+                            {isGenerating ? "Generuji…" : "+ Generovat"}
+                          </button>
+                          {count > 0 && (
+                            <button
+                              className="chip-btn"
+                              onClick={() => handleDeleteAISentences(letter)}
+                              disabled={!!aiGenerating}
+                              style={{ background: t.chipInactiveBg, color: "#e74c3c", fontSize: "0.78rem" }}
+                              title="Smazat AI věty"
+                            >
+                              🗑
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
         {profileModalEl}
       </div>
@@ -768,7 +912,7 @@ export default function App() {
               <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.85rem", color: t.pillText }}>{currentUser.name}</span>
             </div>
             {currentUser.role === "parent" && (
-              <button onClick={() => { loadUsers(); setShowManage(true); }} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 10px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.88rem", color: t.pillText, cursor: "pointer" }}>
+              <button onClick={() => { loadUsers(); loadAiSettings(); setShowManage(true); }} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 10px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.88rem", color: t.pillText, cursor: "pointer" }}>
                 ⚙️
               </button>
             )}
@@ -934,7 +1078,7 @@ export default function App() {
         </div>
 
         <div style={{ textAlign: "center", marginTop: 14, fontSize: "0.82rem", color: t.muted, fontStyle: "italic", fontFamily: "'Lora', serif" }}>
-          Nové věty = náhodný výběr z místní databáze.
+          Nové věty = náhodný výběr z místní databáze + AI vět (pokud jsou k dispozici).
         </div>
       </div>
 

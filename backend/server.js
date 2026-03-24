@@ -87,6 +87,11 @@ const GEMINI_MODEL_CANDIDATES = [
   "gemini-1.5-flash-latest",
 ].filter(Boolean);
 
+const isRetryableGeminiModelError = (status, message) =>
+  status === 404 ||
+  status === 429 ||
+  /not found|not supported|quota exceeded|rate limit/i.test(message);
+
 async function generateSentencesFromGemini(letter, apiKey) {
   const prompt = `Vygeneruj 25 různých českých vět pro žáky 2.–5. třídy procvičující vyjmenovaná slova po písmenu ${letter}.
 
@@ -112,6 +117,7 @@ Příklady správného rozdělení:
 - "výr" → {"before": "Na skále seděl v", "blank": "ý", "after": "r."}`;
 
   let lastError = null;
+  const triedModels = [];
 
   for (const model of GEMINI_MODEL_CANDIDATES) {
     const response = await fetch(
@@ -130,11 +136,8 @@ Příklady správného rozdělení:
       const err = await response.json().catch(() => ({}));
       const message = err.error?.message || `Gemini API chyba ${response.status}`;
 
-      // If a model was retired or this method is unsupported, try the next candidate.
-      if (
-        response.status === 404 ||
-        /not found|not supported/i.test(message)
-      ) {
+      if (isRetryableGeminiModelError(response.status, message)) {
+        triedModels.push(model);
         lastError = new Error(`Model ${model}: ${message}`);
         continue;
       }
@@ -163,7 +166,13 @@ Příklady správného rozdělení:
       }));
   }
 
-  throw lastError || new Error("Nepodařilo se najít podporovaný Gemini model pro generateContent");
+  if (lastError) {
+    throw new Error(
+      `AI generování teď není dostupné. Vyzkoušené modely: ${triedModels.join(", ")}. Poslední chyba: ${lastError.message}`
+    );
+  }
+
+  throw new Error("Nepodařilo se najít podporovaný Gemini model pro generateContent");
 }
 
 // ── Express ───────────────────────────────────────────────────────────────

@@ -529,6 +529,39 @@ app.delete("/api/ai-sentence/:id", (req, res) => {
   res.json({ ok: true });
 });
 
+// Export všech vět (AI + lokální banka) jako CSV
+app.get("/api/export-sentences", (req, res) => {
+  const rows = db
+    .prepare("SELECT id, letter, sentence_json, review_status, source_model, created_at FROM ai_sentences ORDER BY letter, created_at DESC")
+    .all();
+
+  const escape = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
+
+  const header = "Zdroj,ID,Písmeno,Věta (celá),Blank,Stav,Model,Datum";
+  const lines = rows.map((row) => {
+    let sentence = null;
+    try { sentence = JSON.parse(row.sentence_json); } catch {}
+    const fullText = sentence?.parts
+      ? sentence.parts.map((p) => ("text" in p ? p.text : p.blank)).join("")
+      : "";
+    const blank = sentence?.parts?.find((p) => "blank" in p)?.blank ?? "";
+    return [
+      "AI",
+      row.id,
+      row.letter,
+      escape(fullText),
+      blank,
+      row.review_status,
+      escape(row.source_model ?? ""),
+      escape(row.created_at ?? ""),
+    ].join(",");
+  });
+
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", "attachment; filename=\"vety-ai.csv\"");
+  res.send("\uFEFF" + [header, ...lines].join("\n"));
+});
+
 app.get("/api/ai-debug", (req, res) => {
   res.json({
     ai_status: loadAiStatus(),

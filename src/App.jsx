@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CATEGORY_ORDER, getBankSummary, getSentencePoolByCategories } from "./sentenceBank";
+import { CATEGORY_ORDER, SENTENCE_BANK, getBankSummary, getSentencePoolByCategories } from "./sentenceBank";
 
 const TAB_META = {
   M: { color: "#c0392b", bg: "#fff5f5", accent: "#e74c3c", emoji: "🐭" },
@@ -642,21 +642,58 @@ export default function App() {
   const exportCSV = () => {
     if (!sessions || sessions.length === 0) return;
     const isParent = currentUser?.role === "parent";
+    const csvEscape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const header = isParent
-      ? "Datum,Čas,Trvání,Profil,Písmeno,Správně,Celkem,Přesnost,Chyby"
-      : "Datum,Čas,Trvání,Písmeno,Správně,Celkem,Přesnost,Chyby";
-    const rows = sessions.map((s) => {
+      ? ["Datum", "Čas", "Trvání", "Profil", "Písmeno", "Správně", "Celkem", "Přesnost", "Stav", "Věta", "Napsáno", "Správně má být"]
+      : ["Datum", "Čas", "Trvání", "Písmeno", "Správně", "Celkem", "Přesnost", "Stav", "Věta", "Napsáno", "Správně má být"];
+    const rows = sessions.flatMap((s) => {
       const d = new Date(s.timestamp);
       const pct = s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0;
-      const mistakes = s.mistakes.map((m) => `${m.sentence} (${m.given}→${m.expected})`).join("; ").replace(/"/g, '""');
       const dur = s.duration_s ? `${Math.floor(s.duration_s / 60)}:${String(s.duration_s % 60).padStart(2, "0")}` : "";
-      const userName = isParent ? `"${(users?.find((u) => u.id === s.user_id)?.name) ?? "—"}",` : "";
-      return `"${d.toLocaleDateString("cs-CZ")}","${d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}","${dur}",${userName}"Po ${s.letter}",${s.correct},${s.total},${pct}%,"${mistakes}"`;
+      const base = [
+        d.toLocaleDateString("cs-CZ"),
+        d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" }),
+        dur,
+        ...(isParent ? [(users?.find((u) => u.id === s.user_id)?.name) ?? "—"] : []),
+        `Po ${s.letter}`,
+        s.correct,
+        s.total,
+        `${pct}%`,
+      ];
+
+      if (!s.mistakes || s.mistakes.length === 0) {
+        return [[...base, "Bez chyby", "", "", ""].map(csvEscape).join(",")];
+      }
+
+      return s.mistakes.map((m) =>
+        [...base, "Chyba", m.sentence, m.given, m.expected].map(csvEscape).join(",")
+      );
     });
-    const blob = new Blob(["\uFEFF" + [header, ...rows].join("\n")], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob(["\uFEFF" + [header.map(csvEscape).join(","), ...rows].join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = "cviceni-vyjmenovana-slova.csv";
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+  };
+
+  const exportLocalBankCSV = () => {
+    const escape = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
+    const header = "Písmeno,Kategorie,Věta (celá),Blank";
+    const lines = [];
+    for (const [letter, letterData] of Object.entries(SENTENCE_BANK)) {
+      for (const [category, sentences_] of Object.entries(letterData.categories || {})) {
+        for (const sentence of sentences_) {
+          const fullText = sentence.parts.map((p) => ("text" in p ? p.text : p.blank)).join("");
+          const blank = sentence.parts.find((p) => "blank" in p)?.blank ?? "";
+          lines.push([letter, category, escape(fullText), blank].join(","));
+        }
+      }
+    }
+    const blob = new Blob(["\uFEFF" + [header, ...lines].join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "vety-lokalni-banka.csv";
     document.body.appendChild(a); a.click();
     document.body.removeChild(a); URL.revokeObjectURL(url);
   };
@@ -1068,8 +1105,24 @@ export default function App() {
                     })}
                     <div style={{ marginTop: 16, padding: "12px 12px 8px", borderRadius: 12, background: t.rowBg, border: `1px solid ${t.border}` }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
-                        <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, fontSize: "0.88rem" }}>
-                          Správa AI vět
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, fontSize: "0.88rem" }}>
+                            Správa AI vět
+                          </div>
+                          <a
+                            href="/api/export-sentences"
+                            download="vety-ai.csv"
+                            style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.75rem", fontWeight: 700, background: t.pillBg, color: t.subtext, border: `1px solid ${t.borderMid}`, borderRadius: 8, padding: "3px 10px", textDecoration: "none", whiteSpace: "nowrap" }}
+                          >
+                            ⬇ AI CSV
+                          </a>
+                          <button
+                            className="chip-btn"
+                            onClick={() => exportLocalBankCSV()}
+                            style={{ fontSize: "0.75rem", background: t.pillBg, color: t.subtext, border: `1px solid ${t.borderMid}` }}
+                          >
+                            ⬇ Lokální CSV
+                          </button>
                         </div>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           {LETTERS.map((letter) => (

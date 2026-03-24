@@ -796,6 +796,13 @@ export function getSentencePool(letter) {
   return CATEGORY_ORDER.flatMap((category) => entry.categories[category] || []);
 }
 
+export function getSentencePoolByCategories(letter, categories) {
+  const entry = SENTENCE_BANK[letter];
+  if (!entry) return [];
+  const cats = categories && categories.length > 0 ? categories : CATEGORY_ORDER;
+  return cats.flatMap((cat) => entry.categories[cat] || []);
+}
+
 export function getBankSummary(letter) {
   const entry = SENTENCE_BANK[letter];
   if (!entry) return null;

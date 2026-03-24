@@ -80,6 +80,13 @@ const WORD_HINTS = {
   Z: "zvyk, jazyk, brzy, nazývat, jazýček. Chytáky (zi/zí): zítra, zima, zimní, zírat, zisk, zívat.",
 };
 
+const GEMINI_MODEL_CANDIDATES = [
+  process.env.GEMINI_MODEL,
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
+  "gemini-1.5-flash-latest",
+].filter(Boolean);
+
 async function generateSentencesFromGemini(letter, apiKey) {
   const prompt = `Vygeneruj 25 různých českých vět pro žáky 2.–5. třídy procvičující vyjmenovaná slova po písmenu ${letter}.
 
@@ -104,40 +111,59 @@ Příklady správného rozdělení:
 - "mísa" → {"before": "Na stole stála velká m", "blank": "í", "after": "sa s ovocem."}
 - "výr" → {"before": "Na skále seděl v", "blank": "ý", "after": "r."}`;
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.9, maxOutputTokens: 2048 },
-      }),
-    }
-  );
+  let lastError = null;
 
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.error?.message || `Gemini API chyba ${response.status}`);
+  for (const model of GEMINI_MODEL_CANDIDATES) {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.9, maxOutputTokens: 2048 },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      const message = err.error?.message || `Gemini API chyba ${response.status}`;
+
+      // If a model was retired or this method is unsupported, try the next candidate.
+      if (
+        response.status === 404 ||
+        /not found|not supported/i.test(message)
+      ) {
+        lastError = new Error(`Model ${model}: ${message}`);
+        continue;
+      }
+
+      throw new Error(message);
+    }
+
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      throw new Error(`Neplatná odpověď z Gemini (${model}) — žádné JSON pole`);
+    }
+
+    const raw = JSON.parse(jsonMatch[0]);
+
+    return raw
+      .filter((s) =>
+        typeof s.before === "string" &&
+        typeof s.after === "string" &&
+        ["y", "ý", "i", "í"].includes(s.blank)
+      )
+      .map((s) => ({
+        parts: [{ text: s.before }, { blank: s.blank }, { text: s.after }],
+      }));
   }
 
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) throw new Error("Neplatná odpověď z Gemini — žádné JSON pole");
-
-  const raw = JSON.parse(jsonMatch[0]);
-
-  return raw
-    .filter((s) =>
-      typeof s.before === "string" &&
-      typeof s.after === "string" &&
-      ["y", "ý", "i", "í"].includes(s.blank)
-    )
-    .map((s) => ({
-      parts: [{ text: s.before }, { blank: s.blank }, { text: s.after }],
-    }));
+  throw lastError || new Error("Nepodařilo se najít podporovaný Gemini model pro generateContent");
 }
 
 // ── Express ───────────────────────────────────────────────────────────────

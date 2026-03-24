@@ -17,7 +17,6 @@ const CAT_LABELS = {
   relatedWords: "Příbuzná",
   easySentences: "Lehké",
   mediumSentences: "Střední",
-  trickQuestions: "Chytáky",
 };
 
 const LETTERS = Object.keys(TAB_META);
@@ -86,15 +85,19 @@ const DARK = {
 // ── Helpers ────────────────────────────────────────────────────────────────
 const _initDark = localStorage.getItem("vs_dark") === "true";
 const _initCount = parseInt(localStorage.getItem("vs_count") || "6");
+const SELECTABLE_CATS = CATEGORY_ORDER.filter((c) => c !== "trickQuestions");
 const _initCats = (() => {
   try {
     const c = JSON.parse(localStorage.getItem("vs_cats"));
-    return Array.isArray(c) && c.length > 0 ? c : [...CATEGORY_ORDER];
-  } catch { return [...CATEGORY_ORDER]; }
+    return Array.isArray(c) && c.length > 0 ? c.filter((x) => x !== "trickQuestions") : [...SELECTABLE_CATS];
+  } catch { return [...SELECTABLE_CATS]; }
 })();
 
 function pickSentences(letter, count, cats) {
-  const pool = [...getSentencePoolByCategories(letter, cats && cats.length > 0 ? cats : CATEGORY_ORDER)];
+  // Vybrané kategorie + chytáky vždy
+  const selectedCats = cats && cats.length > 0 ? cats : CATEGORY_ORDER.filter((c) => c !== "trickQuestions");
+  const catsWithTricks = [...new Set([...selectedCats, "trickQuestions"])];
+  const pool = [...getSentencePoolByCategories(letter, catsWithTricks)];
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -815,7 +818,7 @@ export default function App() {
         <div style={{ width: 1, height: 22, background: t.border, flexShrink: 0 }} />
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: t.subtext, whiteSpace: "nowrap" }}>Typ:</span>
-          {CATEGORY_ORDER.map((cat) => {
+          {SELECTABLE_CATS.map((cat) => {
             const active = activeCats.includes(cat);
             return (
               <button key={cat} className="chip-btn" onClick={() => toggleCat(cat)} style={{ background: active ? t.chipActiveBg : t.chipInactiveBg, color: active ? t.chipActiveText : t.chipInactiveText, textDecoration: active ? "none" : "line-through" }}>
@@ -823,6 +826,7 @@ export default function App() {
               </button>
             );
           })}
+          <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", color: t.subtext, whiteSpace: "nowrap" }}>+ Chytáky vždy</span>
         </div>
       </div>
 

@@ -37,10 +37,13 @@ db.exec(`
   )
 `);
 
-// Migrace: přidej user_id do starší DB bez tohoto sloupce
+// Migrace: přidej chybějící sloupce do starší DB
 const cols = db.prepare("PRAGMA table_info(sessions)").all();
 if (!cols.find((c) => c.name === "user_id")) {
   db.exec("ALTER TABLE sessions ADD COLUMN user_id INTEGER REFERENCES users(id)");
+}
+if (!cols.find((c) => c.name === "duration_s")) {
+  db.exec("ALTER TABLE sessions ADD COLUMN duration_s INTEGER");
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -115,13 +118,13 @@ app.post("/api/login", (req, res) => {
 // ── Sezení ────────────────────────────────────────────────────────────────
 
 app.post("/api/sessions", (req, res) => {
-  const { letter, correct, total, mistakes, userId } = req.body;
+  const { letter, correct, total, mistakes, userId, duration_s } = req.body;
   if (!letter || correct == null || total == null || !Array.isArray(mistakes)) {
     return res.status(400).json({ error: "Chybí povinná pole" });
   }
   const result = db
-    .prepare("INSERT INTO sessions (letter, correct, total, mistakes, user_id) VALUES (?, ?, ?, ?, ?)")
-    .run(letter, correct, total, JSON.stringify(mistakes), userId || null);
+    .prepare("INSERT INTO sessions (letter, correct, total, mistakes, user_id, duration_s) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(letter, correct, total, JSON.stringify(mistakes), userId || null, duration_s || null);
   res.json({ id: result.lastInsertRowid });
 });
 
@@ -140,10 +143,26 @@ app.get("/api/sessions", (req, res) => {
 });
 
 app.get("/api/stats", (req, res) => {
-  const { userId } = req.query;
+  const { userId, byUser } = req.query;
   const params = [];
   let where = "";
   if (userId) { where = "WHERE user_id = ?"; params.push(parseInt(userId)); }
+  if (byUser === "1") {
+    // Statistiky per-uživatel per-písmeno (jen pro rodiče)
+    const rows = db.prepare(`
+      SELECT
+        user_id,
+        letter,
+        COUNT(*)                                                  AS sessions,
+        SUM(correct)                                              AS total_correct,
+        SUM(total)                                                AS total_blanks,
+        ROUND(AVG(CAST(correct AS FLOAT) / NULLIF(total, 0)) * 100, 1) AS avg_accuracy
+      FROM sessions
+      GROUP BY user_id, letter
+      ORDER BY user_id, letter
+    `).all();
+    return res.json(rows);
+  }
   const rows = db.prepare(`
     SELECT
       letter,

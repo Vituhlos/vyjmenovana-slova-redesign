@@ -161,6 +161,8 @@ export default function App() {
   const [histTab, setHistTab] = useState("sessions");
   const [sessions, setSessions] = useState(null);
   const [stats, setStats] = useState(null);
+  const [statsByUser, setStatsByUser] = useState(null); // per-user stats pro rodiče
+  const [histFilterUser, setHistFilterUser] = useState(null); // null = vše, nebo userId
 
   // Uživatelé
   const [currentUser, setCurrentUser] = useState(() => {
@@ -178,6 +180,7 @@ export default function App() {
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState("");
   const avatarInputRef = useRef(null);
+  const sessionStartRef = useRef(Date.now());
 
   // ── Persist settings ────────────────────────────────────────────────────
   useEffect(() => { localStorage.setItem("vs_dark", darkMode); }, [darkMode]);
@@ -345,6 +348,7 @@ export default function App() {
     setInputs((prev) => ({ ...prev, [letter]: picked.map((s) => s.parts.filter((p) => "blank" in p).map(() => "")) }));
     setChecked((prev) => ({ ...prev, [letter]: false }));
     setScore((prev) => ({ ...prev, [letter]: null }));
+    sessionStartRef.current = Date.now();
   }, [sentenceCount, activeCats]);
 
   useEffect(() => {
@@ -380,10 +384,11 @@ export default function App() {
     setScore((prev) => ({ ...prev, [activeTab]: { correct, total } }));
     setChecked((prev) => ({ ...prev, [activeTab]: true }));
     playSound(correct === total ? "correct" : "wrong");
+    const duration_s = Math.round((Date.now() - sessionStartRef.current) / 1000);
     fetch("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ letter: activeTab, correct, total, mistakes, userId: currentUser?.id }),
+      body: JSON.stringify({ letter: activeTab, correct, total, mistakes, userId: currentUser?.id, duration_s }),
     }).catch(() => {});
   }, [sentences, inputs, activeTab, playSound, currentUser]);
 
@@ -408,15 +413,20 @@ export default function App() {
   const loadHistory = useCallback(async () => {
     setSessions(null);
     setStats(null);
+    setStatsByUser(null);
+    setHistFilterUser(null);
     setShowHistory(true);
     const isParent = currentUser?.role === "parent";
     const uid = currentUser?.id;
-    const sesUrl = isParent ? "/api/sessions?limit=150" : `/api/sessions?limit=150&userId=${uid}`;
+    const sesUrl = isParent ? "/api/sessions?limit=200" : `/api/sessions?limit=150&userId=${uid}`;
     const stUrl = isParent ? "/api/stats" : `/api/stats?userId=${uid}`;
     try {
-      const [sesRes, stRes] = await Promise.all([fetch(sesUrl), fetch(stUrl)]);
-      setSessions(await sesRes.json());
-      setStats(await stRes.json());
+      const fetches = [fetch(sesUrl), fetch(stUrl)];
+      if (isParent) fetches.push(fetch("/api/stats?byUser=1"));
+      const results = await Promise.all(fetches);
+      setSessions(await results[0].json());
+      setStats(await results[1].json());
+      if (isParent) setStatsByUser(await results[2].json());
     } catch {
       setSessions([]);
       setStats([]);
@@ -425,12 +435,17 @@ export default function App() {
 
   const exportCSV = () => {
     if (!sessions || sessions.length === 0) return;
-    const header = "Datum,Čas,Písmeno,Správně,Celkem,Přesnost,Chyby";
+    const isParent = currentUser?.role === "parent";
+    const header = isParent
+      ? "Datum,Čas,Trvání,Profil,Písmeno,Správně,Celkem,Přesnost,Chyby"
+      : "Datum,Čas,Trvání,Písmeno,Správně,Celkem,Přesnost,Chyby";
     const rows = sessions.map((s) => {
       const d = new Date(s.timestamp);
       const pct = s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0;
       const mistakes = s.mistakes.map((m) => `${m.sentence} (${m.given}→${m.expected})`).join("; ").replace(/"/g, '""');
-      return `"${d.toLocaleDateString("cs-CZ")}","${d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}","Po ${s.letter}",${s.correct},${s.total},${pct}%,"${mistakes}"`;
+      const dur = s.duration_s ? `${Math.floor(s.duration_s / 60)}:${String(s.duration_s % 60).padStart(2, "0")}` : "";
+      const userName = isParent ? `"${(users?.find((u) => u.id === s.user_id)?.name) ?? "—"}",` : "";
+      return `"${d.toLocaleDateString("cs-CZ")}","${d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}","${dur}",${userName}"Po ${s.letter}",${s.correct},${s.total},${pct}%,"${mistakes}"`;
     });
     const blob = new Blob(["\uFEFF" + [header, ...rows].join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -733,35 +748,40 @@ export default function App() {
       <style>{sharedCSS}</style>
 
       {/* Header */}
-      <div style={{ textAlign: "center", marginBottom: 20, position: "relative" }}>
-        <div style={{ fontSize: "2.4rem", fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, letterSpacing: "-1px" }}>
-          Vyjmenovaná slova
-        </div>
-        <div style={{ fontSize: "0.95rem", color: t.subtext, fontFamily: "'Lora', serif", fontStyle: "italic", marginTop: 4 }}>
-          Doplň správně <strong>i</strong> nebo <strong>y</strong> (popřípadě <strong>í / ý</strong>)
-        </div>
-        <div className="header-btns" style={{ position: "absolute", top: 6, right: 0, display: "flex", gap: 8, alignItems: "center" }}>
-          <button onClick={() => setSoundOn((s) => !s)} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 12px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.9rem", color: t.pillText, cursor: "pointer" }}>
-            {soundOn ? "🔊" : "🔇"}
-          </button>
-          <button onClick={() => setDarkMode((d) => !d)} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 12px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.9rem", color: t.pillText, cursor: "pointer" }}>
-            {darkMode ? "☀️" : "🌙"}
-          </button>
-          <button onClick={loadHistory} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 14px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.88rem", color: t.pillText, cursor: "pointer" }}>
-            📊 Historie
-          </button>
-        </div>
-        {/* Uživatel vlevo */}
-        <div style={{ position: "absolute", top: 6, left: 0, display: "flex", alignItems: "center", gap: 8 }}>
-          <div onClick={handleLogout} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 7, background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "5px 10px 5px 6px" }} title="Odhlásit / Změnit uživatele">
-            <Avatar user={currentUser} size={26} />
-            <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.85rem", color: t.pillText }}>{currentUser.name}</span>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: "2.4rem", fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, letterSpacing: "-1px" }}>
+            Vyjmenovaná slova
           </div>
-          {currentUser.role === "parent" && (
-            <button onClick={() => { loadUsers(); setShowManage(true); }} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 10px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.88rem", color: t.pillText, cursor: "pointer" }}>
-              ⚙️
+          <div style={{ fontSize: "0.95rem", color: t.subtext, fontFamily: "'Lora', serif", fontStyle: "italic", marginTop: 4 }}>
+            Doplň správně <strong>i</strong> nebo <strong>y</strong> (popřípadě <strong>í / ý</strong>)
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+          {/* Levá strana: uživatel + správa */}
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div onClick={handleLogout} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 7, background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "5px 10px 5px 6px" }} title="Odhlásit / Změnit uživatele">
+              <Avatar user={currentUser} size={26} />
+              <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.85rem", color: t.pillText }}>{currentUser.name}</span>
+            </div>
+            {currentUser.role === "parent" && (
+              <button onClick={() => { loadUsers(); setShowManage(true); }} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 10px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.88rem", color: t.pillText, cursor: "pointer" }}>
+                ⚙️
+              </button>
+            )}
+          </div>
+          {/* Pravá strana: akce */}
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button onClick={() => setSoundOn((s) => !s)} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 12px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.9rem", color: t.pillText, cursor: "pointer" }}>
+              {soundOn ? "🔊" : "🔇"}
             </button>
-          )}
+            <button onClick={() => setDarkMode((d) => !d)} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 12px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.9rem", color: t.pillText, cursor: "pointer" }}>
+              {darkMode ? "☀️" : "🌙"}
+            </button>
+            <button onClick={loadHistory} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 14px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.88rem", color: t.pillText, cursor: "pointer" }}>
+              📊 Historie
+            </button>
+          </div>
         </div>
       </div>
 
@@ -939,11 +959,28 @@ export default function App() {
                 <>
                   {sessions === null && <div style={{ textAlign: "center", color: t.subtext, fontFamily: "'Nunito', sans-serif", padding: 40 }}>Načítám…</div>}
                   {sessions !== null && sessions.length === 0 && <div style={{ textAlign: "center", color: t.subtext, fontFamily: "'Nunito', sans-serif", padding: 40 }}>Žádná cvičení zatím nebyla uložena.</div>}
-                  {sessions !== null && sessions.map((session) => {
+                  {/* Filtr podle profilu — jen pro rodiče */}
+                  {sessions !== null && sessions.length > 0 && currentUser.role === "parent" && users && users.length > 1 && (
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+                      <button className="chip-btn" onClick={() => setHistFilterUser(null)} style={{ background: histFilterUser === null ? data.accent : t.chipInactiveBg, color: histFilterUser === null ? "white" : t.chipInactiveText }}>
+                        Všichni
+                      </button>
+                      {users.map((u) => (
+                        <button key={u.id} className="chip-btn" onClick={() => setHistFilterUser(histFilterUser === u.id ? null : u.id)} style={{ display: "flex", alignItems: "center", gap: 5, background: histFilterUser === u.id ? avatarColor(u.id) : t.chipInactiveBg, color: histFilterUser === u.id ? "white" : t.chipInactiveText }}>
+                          <Avatar user={u} size={16} />
+                          {u.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {sessions !== null && sessions
+                    .filter((s) => histFilterUser === null || s.user_id === histFilterUser)
+                    .map((session) => {
                     const meta = TAB_META[session.letter];
                     const pct = session.total > 0 ? Math.round((session.correct / session.total) * 100) : 0;
                     const date = new Date(session.timestamp);
                     const sessionUser = currentUser.role === "parent" && users ? users.find((u) => u.id === session.user_id) : null;
+                    const durStr = session.duration_s ? `⏱ ${Math.floor(session.duration_s / 60)}:${String(session.duration_s % 60).padStart(2, "0")}` : null;
                     return (
                       <details key={session.id} className="session-card" style={{ border: `1px solid ${t.border}` }}>
                         <summary className="session-header" style={{ listStyle: "none" }}>
@@ -952,8 +989,16 @@ export default function App() {
                             {session.correct}/{session.total}
                             <span style={{ marginLeft: 5, color: pct === 100 ? "#27ae60" : pct >= 70 ? "#f39c12" : "#e74c3c", fontWeight: 800 }}>{pct}%</span>
                           </span>
-                          {sessionUser && <span style={{ fontSize: "0.78rem", color: t.subtext, fontFamily: "'Nunito', sans-serif" }}>{sessionUser.name}</span>}
-                          <span style={{ marginLeft: "auto", fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", color: t.subtext }}>{date.toLocaleDateString("cs-CZ")} {date.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}</span>
+                          {sessionUser && (
+                            <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: "0.78rem", color: t.subtext, fontFamily: "'Nunito', sans-serif" }}>
+                              <Avatar user={sessionUser} size={16} />
+                              {sessionUser.name}
+                            </span>
+                          )}
+                          <span style={{ marginLeft: "auto", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
+                            <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", color: t.subtext }}>{date.toLocaleDateString("cs-CZ")} {date.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}</span>
+                            {durStr && <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.75rem", color: t.muted }}>{durStr}</span>}
+                          </span>
                         </summary>
                         {session.mistakes.length > 0 ? session.mistakes.map((m, i) => (
                           <div key={i} className="mistake-row" style={{ borderTop: `1px solid ${t.border}`, background: t.mistakeBg }}>
@@ -978,7 +1023,43 @@ export default function App() {
                   {stats !== null && stats.length === 0 && <div style={{ textAlign: "center", color: t.subtext, fontFamily: "'Nunito', sans-serif", padding: 40 }}>Zatím žádná data.</div>}
                   {stats !== null && stats.length > 0 && (
                     <>
-                      <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, marginBottom: 18, fontSize: "1rem" }}>Průměrná přesnost</div>
+                      {/* Per-profil porovnání (jen pro rodiče s více uživateli) */}
+                      {currentUser.role === "parent" && statsByUser && users && users.length > 1 && (() => {
+                        const usersWithData = users.filter((u) => statsByUser.some((r) => r.user_id === u.id));
+                        if (usersWithData.length < 2) return null;
+                        return (
+                          <div style={{ marginBottom: 24 }}>
+                            <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, marginBottom: 14, fontSize: "1rem" }}>Porovnání profilů</div>
+                            {LETTERS.filter((l) => statsByUser.some((r) => r.letter === l)).map((letter) => {
+                              const meta = TAB_META[letter];
+                              return (
+                                <div key={letter} style={{ marginBottom: 14 }}>
+                                  <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.subtext, fontSize: "0.82rem", marginBottom: 5 }}>{meta.emoji} Po {letter}</div>
+                                  {usersWithData.map((u) => {
+                                    const row = statsByUser.find((r) => r.user_id === u.id && r.letter === letter);
+                                    if (!row) return null;
+                                    const pct = row.avg_accuracy || 0;
+                                    const barColor = avatarColor(u.id);
+                                    return (
+                                      <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                                        <Avatar user={u} size={18} />
+                                        <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", color: t.text, minWidth: 60 }}>{u.name}</span>
+                                        <div style={{ flex: 1, height: 8, background: t.barTrack, borderRadius: 4, overflow: "hidden" }}>
+                                          <div style={{ height: "100%", width: `${pct}%`, background: barColor, borderRadius: 4, transition: "width 0.6s ease" }} />
+                                        </div>
+                                        <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", fontWeight: 800, color: barColor, minWidth: 38, textAlign: "right" }}>{pct}%</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
+                      <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, marginBottom: 14, fontSize: "1rem" }}>
+                        {currentUser.role === "parent" ? "Celková přesnost (vše)" : "Průměrná přesnost"}
+                      </div>
                       {LETTERS.filter((l) => stats.find((s) => s.letter === l)).map((letter) => {
                         const s = stats.find((st) => st.letter === letter);
                         const meta = TAB_META[letter];

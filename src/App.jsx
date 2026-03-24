@@ -351,6 +351,7 @@ export default function App() {
           .check-btn { padding: 12px 20px; font-size: 0.95rem; min-height: 46px; }
           .chip-btn { padding: 6px 12px; font-size: 0.82rem; min-height: 34px; }
           .num { min-width: 22px; height: 22px; font-size: 0.72rem; margin-right: 8px; }
+          .header-btns { position: static !important; margin-top: 10px; justify-content: center; }
         }
       `}</style>
 
@@ -362,7 +363,7 @@ export default function App() {
         <div style={{ fontSize: "0.95rem", color: t.subtext, fontFamily: "'Lora', serif", fontStyle: "italic", marginTop: 4 }}>
           Doplň správně <strong>i</strong> nebo <strong>y</strong> (popřípadě <strong>í / ý</strong>)
         </div>
-        <div style={{ position: "absolute", top: 6, right: 0, display: "flex", gap: 8 }}>
+        <div className="header-btns" style={{ position: "absolute", top: 6, right: 0, display: "flex", gap: 8 }}>
           <button
             onClick={() => setSoundOn((s) => !s)}
             style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 12px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.9rem", color: t.pillText, cursor: "pointer" }}
@@ -486,26 +487,87 @@ export default function App() {
               <div key={`${activeTab}-${si}`} className="sentence-row" style={{ background: t.rowBg }}>
                 <span className="num" style={{ background: numBg, color: data.accent }}>{si + 1}</span>
                 <span>
-                  {partsWithIdx.map((part, pi) => {
-                    if ("text" in part) return <span key={pi} style={{ color: t.text }}>{part.text}</span>;
-                    const { bi, blank } = part;
-                    const val = inputs[activeTab]?.[si]?.[bi] || "";
-                    const isWrong = checked[activeTab] && val.toLowerCase() !== blank.toLowerCase();
-                    const isCorrect = checked[activeTab] && val.toLowerCase() === blank.toLowerCase();
-                    return (
-                      <span key={pi}>
-                        <input
-                          className={`blank-input${isWrong ? " anim-wrong" : isCorrect ? " anim-correct" : ""}`}
-                          value={val}
-                          onChange={(e) => handleInput(si, bi, e.target.value)}
-                          onKeyDown={(e) => e.key === "Enter" && checkAnswers()}
-                          maxLength={2}
-                          style={blankStyle(si, bi, blank)}
-                        />
-                        {isWrong && <span className="hint">({blank})</span>}
-                      </span>
-                    );
-                  })}
+                  {(() => {
+                    const result = [];
+                    let pi = 0;
+                    while (pi < partsWithIdx.length) {
+                      const p = partsWithIdx[pi];
+
+                      if ("blank" in p) {
+                        // Osamostatněné políčko (věta začíná prázdným místem)
+                        const { bi, blank } = p;
+                        const val = inputs[activeTab]?.[si]?.[bi] || "";
+                        const isWrong = checked[activeTab] && val.toLowerCase() !== blank.toLowerCase();
+                        const isCorrect = checked[activeTab] && val.toLowerCase() === blank.toLowerCase();
+                        result.push(
+                          <span key={pi} style={{ whiteSpace: "nowrap" }}>
+                            <input
+                              className={`blank-input${isWrong ? " anim-wrong" : isCorrect ? " anim-correct" : ""}`}
+                              value={val}
+                              onChange={(e) => handleInput(si, bi, e.target.value)}
+                              onKeyDown={(e) => e.key === "Enter" && checkAnswers()}
+                              maxLength={2}
+                              style={blankStyle(si, bi, blank)}
+                            />
+                            {isWrong && <span className="hint">({blank})</span>}
+                          </span>
+                        );
+                        pi++;
+                        continue;
+                      }
+
+                      const nextP = partsWithIdx[pi + 1];
+                      if (!nextP || "text" in nextP) {
+                        // Prostý text bez následujícího políčka
+                        result.push(<span key={pi} style={{ color: t.text }}>{p.text}</span>);
+                        pi++;
+                        continue;
+                      }
+
+                      // Text + políčko — zabal okolní slovo dohromady (nowrap)
+                      const { bi, blank } = nextP;
+                      const val = inputs[activeTab]?.[si]?.[bi] || "";
+                      const isWrong = checked[activeTab] && val.toLowerCase() !== blank.toLowerCase();
+                      const isCorrect = checked[activeTab] && val.toLowerCase() === blank.toLowerCase();
+
+                      // Poslední fragment textu před políčkem (od posledního přechodu)
+                      const lastSpace = p.text.lastIndexOf(" ");
+                      const textBefore = lastSpace >= 0 ? p.text.slice(0, lastSpace + 1) : "";
+                      const wordBefore = lastSpace >= 0 ? p.text.slice(lastSpace + 1) : p.text;
+
+                      // První fragment textu za políčkem (do prvního přechodu)
+                      const afterP = partsWithIdx[pi + 2];
+                      let wordAfter = "", textAfter = "", advance = 2;
+                      if (afterP && "text" in afterP) {
+                        const firstSpace = afterP.text.indexOf(" ");
+                        wordAfter = firstSpace >= 0 ? afterP.text.slice(0, firstSpace) : afterP.text;
+                        textAfter = firstSpace >= 0 ? afterP.text.slice(firstSpace) : "";
+                        advance = 3;
+                      }
+
+                      result.push(
+                        <span key={pi}>
+                          {textBefore && <span style={{ color: t.text }}>{textBefore}</span>}
+                          <span style={{ whiteSpace: "nowrap" }}>
+                            {wordBefore && <span style={{ color: t.text }}>{wordBefore}</span>}
+                            <input
+                              className={`blank-input${isWrong ? " anim-wrong" : isCorrect ? " anim-correct" : ""}`}
+                              value={val}
+                              onChange={(e) => handleInput(si, bi, e.target.value)}
+                              onKeyDown={(e) => e.key === "Enter" && checkAnswers()}
+                              maxLength={2}
+                              style={blankStyle(si, bi, blank)}
+                            />
+                            {isWrong && <span className="hint">({blank})</span>}
+                            {wordAfter && <span style={{ color: t.text }}>{wordAfter}</span>}
+                          </span>
+                          {textAfter && <span style={{ color: t.text }}>{textAfter}</span>}
+                        </span>
+                      );
+                      pi += advance;
+                    }
+                    return result;
+                  })()}
                 </span>
               </div>
             );

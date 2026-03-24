@@ -23,6 +23,17 @@ test("buildGeminiModelCandidates prefers flash models without duplicates", () =>
   assert.ok(models.includes("gemini-2.5-pro"));
 });
 
+test("buildGeminiModelCandidates excludes lite models from auto-discovery", () => {
+  const models = buildGeminiModelCandidates([
+    "gemini-flash-lite-latest",
+    "gemini-2.0-flash-lite",
+    "gemini-2.5-flash",
+  ]);
+  assert.ok(!models.includes("gemini-flash-lite-latest"));
+  assert.ok(!models.includes("gemini-2.0-flash-lite"));
+  assert.ok(models.includes("gemini-2.5-flash"));
+});
+
 test("normalizeSentenceParts accepts a valid sentence", () => {
   const result = normalizeSentenceParts({
     before: "Malá m",

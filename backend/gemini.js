@@ -2,7 +2,6 @@ export const GEMINI_MODEL_CANDIDATES = [
   process.env.GEMINI_MODEL,
   "gemini-2.5-flash",
   "gemini-2.0-flash",
-  "gemini-2.0-flash-lite",
   "gemini-1.5-flash",
   "gemini-1.5-flash-001",
 ].filter(Boolean);
@@ -52,11 +51,15 @@ export function buildGeminiModelCandidates(availableModels) {
 
   for (const model of GEMINI_MODEL_CANDIDATES) add(model);
 
+  const isUnsuitable = (model) => /lite|tts|audio|speech/i.test(model);
+
   for (const model of availableModels) {
-    if (/flash/i.test(model)) add(model);
+    if (/flash/i.test(model) && !isUnsuitable(model)) add(model);
   }
 
-  for (const model of availableModels) add(model);
+  for (const model of availableModels) {
+    if (!isUnsuitable(model)) add(model);
+  }
 
   return preferred;
 }

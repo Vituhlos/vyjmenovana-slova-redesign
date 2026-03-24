@@ -1,0 +1,9 @@
+services:
+  vyjmenovana-slova:
+    build: .
+    container_name: vyjmenovana-slova
+    ports:
+      - "8080:3001"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

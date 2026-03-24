@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>VyjmenovanaSlova</Name>
+  <Repository>ghcr.io/TVUJ_UCET/vyjmenovana-slova:latest</Repository>
+  <Registry>https://ghcr.io</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/TVUJ_UCET/vyjmenovana-slova</Support>
+  <Project>https://github.com/TVUJ_UCET/vyjmenovana-slova</Project>
+  <Overview>Procvicovaci webova appka na vyjmenovana slova. React + Vite, bez backendu, provozovana jako staticky web pres nginx.</Overview>
+  <Category>Education:</Category>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <TemplateURL/>
+  <Icon>https://raw.githubusercontent.com/selfhst/icons/main/svg/bookstack.svg</Icon>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled>1711213200</DateInstalled>
+  <DonateText/>
+  <DonateLink/>
+  <Description>Lehka webova appka pro procvicovani vyjmenovanych slov po M, P, L a B s lokalni databazi vet.</Description>
+  <Networking>
+    <Mode>bridge</Mode>
+    <Publish>
+      <Port>
+        <HostPort>8080</HostPort>
+        <ContainerPort>80</ContainerPort>
+        <Protocol>tcp</Protocol>
+      </Port>
+    </Publish>
+  </Networking>
+  <Config Name="Web UI Port" Target="80" Default="80" Mode="tcp" Description="Container port for nginx" Type="Port" Display="always" Required="true" Mask="false">80</Config>
+  <Config Name="Host Port" Target="8080" Default="8080" Mode="tcp" Description="Port na kterem bude appka dostupna v Unraidu" Type="Port" Display="always" Required="true" Mask="false">8080</Config>
+  <Config Name="Repository" Target="Repository" Default="ghcr.io/TVUJ_UCET/vyjmenovana-slova:latest" Mode="" Description="Docker image s buildnutou aplikaci. Zmen na svou registry/image." Type="Variable" Display="always" Required="true" Mask="false">ghcr.io/TVUJ_UCET/vyjmenovana-slova:latest</Config>
+</Container>

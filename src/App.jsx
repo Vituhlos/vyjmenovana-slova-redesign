@@ -189,6 +189,7 @@ export default function App() {
   const [aiSettings, setAiSettings] = useState(null);
   const [aiKeyInput, setAiKeyInput] = useState("");
   const [aiGenerating, setAiGenerating] = useState(null); // letter nebo null
+  const [aiNotice, setAiNotice] = useState(null);
 
   // ── Persist settings ────────────────────────────────────────────────────
   useEffect(() => { localStorage.setItem("vs_dark", darkMode); }, [darkMode]);
@@ -326,8 +327,11 @@ export default function App() {
         body: JSON.stringify({ gemini_key: aiKeyInput }),
       });
       setAiKeyInput("");
+      setAiNotice({ type: "success", text: "Gemini API klíč byl uložen." });
       await loadAiSettings();
-    } catch {}
+    } catch {
+      setAiNotice({ type: "error", text: "API klíč se nepodařilo uložit." });
+    }
   };
 
   const handleDeleteAiKey = async () => {
@@ -336,11 +340,13 @@ export default function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ gemini_key: "" }),
     }).catch(() => {});
+    setAiNotice({ type: "success", text: "Gemini API klíč byl smazán." });
     await loadAiSettings();
   };
 
   const handleGenerateAI = async (letter) => {
     setAiGenerating(letter);
+    setAiNotice(null);
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
@@ -350,8 +356,9 @@ export default function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Chyba generování");
       await loadAiSettings();
+      setAiNotice({ type: "success", text: `AI úspěšně vygenerovala ${data.generated ?? "nové"} věty pro písmeno ${letter}.` });
     } catch (e) {
-      alert(e.message);
+      setAiNotice({ type: "error", text: e.message || "AI generování se nepodařilo. Zkuste to prosím znovu." });
     }
     setAiGenerating(null);
   };
@@ -840,10 +847,26 @@ export default function App() {
                     )}
                   </div>
                 </div>
+                {aiNotice && (
+                  <div
+                    style={{
+                      marginBottom: 12,
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      background: aiNotice.type === "error" ? "#fff4f2" : "#eefaf1",
+                      color: aiNotice.type === "error" ? "#b7412d" : "#1f7a3f",
+                      fontFamily: "'Nunito', sans-serif",
+                      fontSize: "0.82rem",
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    {aiNotice.text}
+                  </div>
+                )}
                 {aiSettings.gemini_key_set && (
                   <div>
                     <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", color: t.subtext, marginBottom: 8 }}>
-                      Každé generování přidá ~25 vět (Google Gemini · zdarma)
+                      Každé generování přidá ~20 vět (Google Gemini · zdarma)
                     </div>
                     {LETTERS.map((letter) => {
                       const count = aiSettings.ai_counts?.[letter] ?? 0;

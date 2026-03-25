@@ -1,0 +1,61 @@
+.toast {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--card-bg);
+  border: 2px solid #27ae60;
+  border-radius: 18px;
+  padding: 16px 24px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  min-width: 240px;
+  pointer-events: none;
+  animation: toastIn 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.toast.hiding {
+  animation: toastOut 0.35s ease forwards;
+}
+
+.emoji {
+  font-size: 2.2rem;
+  flex-shrink: 0;
+}
+
+.label {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 0.72rem;
+  color: #27ae60;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.name {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.desc {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.78rem;
+  color: var(--subtext);
+  margin-top: 2px;
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-28px) scale(0.88); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
+@keyframes toastOut {
+  from { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateX(-50%) translateY(-16px) scale(0.94); }
+}

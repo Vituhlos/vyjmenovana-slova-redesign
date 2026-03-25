@@ -1,0 +1,90 @@
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  box-shadow: var(--shadow-sm);
+}
+
+.left,
+.right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.userChip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--pill-bg);
+  border: 2px solid var(--border-mid);
+  border-radius: 12px;
+  padding: 6px 12px 6px 7px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+.userChip:hover {
+  background: var(--chip-inactive-bg);
+  transform: translateY(-1px);
+}
+
+.userName {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 0.88rem;
+  color: var(--pill-text);
+}
+
+.streak {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #fff3cd;
+  border: 2px solid #f39c12;
+  border-radius: 12px;
+  padding: 6px 12px;
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 0.88rem;
+  color: #c0790d;
+}
+[data-theme="dark"] .streak {
+  background: #2a1f00;
+}
+
+.iconBtn {
+  background: var(--pill-bg);
+  border: 2px solid var(--border-mid);
+  border-radius: 12px;
+  padding: 7px 12px;
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 0.9rem;
+  color: var(--pill-text);
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  min-height: 40px;
+}
+.iconBtn:hover {
+  background: var(--chip-inactive-bg);
+  transform: translateY(-1px);
+}
+
+.tahakBtn,
+.historyBtn {
+  font-size: 0.88rem;
+}
+
+@media (max-width: 600px) {
+  .header { padding: 10px 14px; }
+  .tahakBtn, .historyBtn { display: none; }
+}

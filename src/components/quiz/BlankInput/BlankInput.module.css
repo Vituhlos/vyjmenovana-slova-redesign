@@ -1,0 +1,8 @@
+.wrapper {
+  display: inline;
+  white-space: nowrap;
+}
+
+.input {
+  /* Base styles already defined in globals.css (.blank-input) */
+}

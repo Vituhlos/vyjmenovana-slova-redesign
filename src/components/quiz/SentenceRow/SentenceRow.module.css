@@ -1,0 +1,11 @@
+.row {
+  /* Extends .sentence-row from globals.css */
+}
+
+.num {
+  /* Extends .sentence-num from globals.css */
+}
+
+.text {
+  color: var(--text);
+}

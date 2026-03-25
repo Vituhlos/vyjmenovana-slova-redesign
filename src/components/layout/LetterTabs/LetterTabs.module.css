@@ -1,0 +1,72 @@
+.nav {
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 65px;
+  z-index: 40;
+  box-shadow: var(--shadow-sm);
+}
+
+.scrollArea {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+.scrollArea::-webkit-scrollbar {
+  height: 4px;
+}
+.scrollArea::-webkit-scrollbar-thumb {
+  background: var(--border-mid);
+  border-radius: 2px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 3px solid transparent;
+  border-radius: 14px;
+  padding: 10px 18px;
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-height: 48px;
+}
+
+.tab:hover {
+  transform: translateY(-2px);
+}
+
+.active {
+  transform: translateY(-2px);
+}
+
+.emoji {
+  font-size: 1.15rem;
+}
+
+.label {
+  font-size: 0.95rem;
+}
+
+.scoreBadge {
+  background: rgba(255, 255, 255, 0.28);
+  border-radius: 8px;
+  padding: 2px 8px;
+  font-size: 0.8rem;
+  margin-left: 2px;
+}
+
+@media (max-width: 600px) {
+  .tab { padding: 8px 12px; font-size: 0.9rem; min-height: 44px; }
+  .label { font-size: 0.86rem; }
+}

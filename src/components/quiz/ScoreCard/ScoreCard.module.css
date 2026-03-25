@@ -1,0 +1,44 @@
+.card {
+  margin: 20px 0 16px;
+  padding: 20px 24px;
+  border-radius: 18px;
+  text-align: center;
+}
+
+.good { background: var(--score-good); }
+.mid  { background: var(--score-mid); }
+.bad  { background: var(--score-bad); }
+
+.emoji {
+  font-size: 2.4rem;
+  margin-bottom: 6px;
+}
+
+.score {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.fraction {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 1.4rem;
+  color: var(--text);
+}
+
+.pct {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 1rem;
+  color: var(--subtext);
+}
+
+.message {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--text);
+}

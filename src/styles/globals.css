@@ -1,0 +1,272 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&family=Lora:ital,wght@0,400;0,600;1,400&display=swap');
+
+/* ── Reset ─────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; font-family: 'Nunito', sans-serif; }
+button { cursor: pointer; font-family: inherit; }
+input { font-family: inherit; }
+
+/* ── CSS Custom Properties — Light Theme ─────────────────────────────── */
+:root {
+  --app-bg: linear-gradient(160deg, #f5f7fa 0%, #e8ecf0 100%);
+  --card-bg: #ffffff;
+  --text: #2c3e50;
+  --subtext: #7f8c8d;
+  --muted: #bbb;
+  --border: #eee;
+  --border-mid: #bdc3c7;
+  --row-bg: #ffffff;
+  --panel-bg: #ffffff;
+  --overlay-bg: rgba(0, 0, 0, 0.45);
+  --pill-bg: #ecf0f1;
+  --pill-text: #7f8c8d;
+  --chip-active-bg: #e8f4fd;
+  --chip-active-text: #2471a3;
+  --chip-inactive-bg: #f0f0f0;
+  --chip-inactive-text: #999;
+  --tab-inactive-bg: white;
+  --score-good: #d4edda;
+  --score-mid: #fff3cd;
+  --score-bad: #f8d7da;
+  --mistake-bg: #fffaf9;
+  --bar-track: #eee;
+  --settings-bg: #ffffff;
+  --input-bg: #f8f9fa;
+  --input-border: #ddd;
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.10);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+/* ── Dark Theme ──────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --app-bg: linear-gradient(160deg, #12151c 0%, #0d1018 100%);
+  --card-bg: #1c2130;
+  --text: #d8e4f0;
+  --subtext: #6d88a0;
+  --muted: #3d5060;
+  --border: #253040;
+  --border-mid: #334455;
+  --row-bg: #18202e;
+  --panel-bg: #161c28;
+  --overlay-bg: rgba(0, 0, 0, 0.65);
+  --pill-bg: #232c3e;
+  --pill-text: #6d88a0;
+  --chip-active-bg: #1a3050;
+  --chip-active-text: #60a8d8;
+  --chip-inactive-bg: #1e2838;
+  --chip-inactive-text: #4a6070;
+  --tab-inactive-bg: #1c2130;
+  --score-good: #0d2218;
+  --score-mid: #252010;
+  --score-bad: #281010;
+  --mistake-bg: #161c24;
+  --bar-track: #253040;
+  --settings-bg: #1c2130;
+  --input-bg: #1e2838;
+  --input-border: #334455;
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+/* ── App Root ────────────────────────────────────────────────────────── */
+#root {
+  min-height: 100vh;
+  background: var(--app-bg);
+  color: var(--text);
+}
+
+/* ── Shared Button Base ──────────────────────────────────────────────── */
+.btn {
+  border: none;
+  border-radius: 12px;
+  padding: 11px 24px;
+  font-size: 1rem;
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  min-height: 48px;
+}
+.btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.btn:active { transform: translateY(0); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.btn-primary {
+  background: #2980b9;
+  color: white;
+}
+.btn-ghost {
+  background: var(--pill-bg);
+  color: var(--pill-text);
+  border: 2px solid var(--border-mid);
+}
+
+/* ── Chip (small button) ─────────────────────────────────────────────── */
+.chip {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border: none;
+  border-radius: 10px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  min-height: 34px;
+}
+.chip:hover { opacity: 0.85; }
+.chip-active {
+  background: var(--chip-active-bg);
+  color: var(--chip-active-text);
+}
+.chip-inactive {
+  background: var(--chip-inactive-bg);
+  color: var(--chip-inactive-text);
+}
+
+/* ── Form Input ──────────────────────────────────────────────────────── */
+.form-input {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 2px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text);
+  font-family: 'Nunito', sans-serif;
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.form-input:focus { border-color: #2980b9; }
+
+/* ── Blank Input ─────────────────────────────────────────────────────── */
+.blank-input {
+  display: inline-block;
+  width: 38px;
+  height: 32px;
+  border: none;
+  border-bottom: 3px solid var(--border-mid);
+  background: transparent;
+  font-size: 1.05rem;
+  font-family: 'Lora', serif;
+  font-weight: 600;
+  text-align: center;
+  outline: none;
+  border-radius: 4px 4px 0 0;
+  padding: 0 2px;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+  vertical-align: baseline;
+  margin: 0 1px;
+  color: var(--text);
+}
+.blank-input:focus {
+  background: rgba(41, 128, 185, 0.08);
+  border-bottom-color: #2980b9;
+}
+.blank-input.correct {
+  background: var(--score-good);
+  border-color: #28a745;
+  color: #155724;
+}
+[data-theme="dark"] .blank-input.correct { color: #5dd88a; }
+.blank-input.wrong {
+  background: var(--score-bad);
+  border-color: #dc3545;
+  color: #721c24;
+}
+[data-theme="dark"] .blank-input.wrong { color: #f08080; }
+
+/* ── Sentence Row ────────────────────────────────────────────────────── */
+.sentence-row {
+  border-radius: 14px;
+  padding: 14px 18px;
+  margin-bottom: 10px;
+  font-family: 'Lora', serif;
+  font-size: 1.08rem;
+  box-shadow: var(--shadow-sm);
+  line-height: 2.2;
+  display: flex;
+  align-items: baseline;
+  background: var(--row-bg);
+}
+
+/* ── Sentence Number Badge ───────────────────────────────────────────── */
+.sentence-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 0.78rem;
+  font-weight: 800;
+  font-family: 'Nunito', sans-serif;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+/* ── Hint (correct answer shown after wrong) ─────────────────────────── */
+.blank-hint {
+  font-size: 0.82rem;
+  color: #27ae60;
+  font-style: italic;
+  font-family: 'Nunito', sans-serif;
+  margin-left: 4px;
+}
+[data-theme="dark"] .blank-hint { color: #5dd88a; }
+
+/* ── Modal ───────────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--overlay-bg);
+}
+.modal-box {
+  width: 100%;
+  max-width: 400px;
+  border-radius: 24px;
+  padding: 32px 28px;
+  background: var(--card-bg);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+}
+
+/* ── Panel (slide-in overlay) ────────────────────────────────────────── */
+.panel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: flex-end;
+  background: var(--overlay-bg);
+}
+.panel-drawer {
+  width: min(560px, 100vw);
+  height: 100vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-bg);
+  box-shadow: -8px 0 40px rgba(0, 0, 0, 0.2);
+}
+.panel-drawer::-webkit-scrollbar { width: 6px; }
+.panel-drawer::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 3px; }
+
+/* ── Scrollbar ───────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 4px; }
+
+/* ── Mobile ──────────────────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .blank-input { width: 46px; height: 40px; font-size: 16px; }
+  .sentence-row { font-size: 1rem; padding: 12px 12px; line-height: 2.4; }
+  .btn { padding: 12px 20px; font-size: 0.95rem; min-height: 50px; }
+  .chip { padding: 7px 13px; font-size: 0.82rem; min-height: 38px; }
+  .sentence-num { min-width: 22px; height: 22px; font-size: 0.72rem; margin-right: 8px; }
+}

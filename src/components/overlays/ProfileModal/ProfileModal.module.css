@@ -1,0 +1,108 @@
+.title {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 1.15rem;
+  color: var(--text);
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.fileInput {
+  display: none;
+}
+
+.avatarRow {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.avatarBtn {
+  position: relative;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.avatarImg {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid var(--border-mid);
+  display: block;
+}
+
+.avatarPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  background: var(--chip-inactive-bg);
+  border: 3px dashed var(--border-mid);
+  font-size: 2rem;
+}
+
+.avatarEdit {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  background: var(--card-bg);
+  border: 2px solid var(--border-mid);
+  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+}
+
+.roleRow {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.roleBtn {
+  flex: 1;
+  padding: 10px;
+  border: 2px solid var(--border-mid);
+  border-radius: 12px;
+  background: var(--chip-inactive-bg);
+  color: var(--chip-inactive-text);
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.roleActive {
+  background: #2980b9;
+  color: white;
+  border-color: #2980b9;
+}
+
+.pinSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.error {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.88rem;
+  color: #e74c3c;
+  margin-bottom: 12px;
+}
+
+.btnRow {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}

@@ -1,0 +1,114 @@
+.header {
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--panel-bg);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.headerTitle {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 1.1rem;
+  color: var(--text);
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  cursor: pointer;
+  color: var(--subtext);
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+.closeBtn:hover { background: var(--chip-inactive-bg); }
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-bg);
+  position: sticky;
+  top: 57px;
+  z-index: 1;
+}
+
+.tabActive {
+  /* color set via inline style */
+}
+
+.tabInactive {
+  background: var(--chip-inactive-bg);
+  color: var(--chip-inactive-text);
+}
+
+.content {
+  padding: 20px;
+}
+
+.sectionTitle {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 1rem;
+  margin-bottom: 14px;
+}
+
+.wordGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.wordChip {
+  border: 2px solid;
+  border-radius: 12px;
+  padding: 6px 14px;
+  font-family: 'Lora', serif;
+  font-weight: 600;
+  font-size: 0.97rem;
+}
+
+.note {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.9rem;
+  color: var(--subtext);
+  font-style: italic;
+  padding: 12px 14px;
+  background: var(--row-bg);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.trickyTitle {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 0.92rem;
+  color: #c0392b;
+  margin-bottom: 12px;
+}
+
+.trickyChip {
+  border: 2px solid #f1948a;
+  border-radius: 12px;
+  padding: 6px 14px;
+  font-family: 'Lora', serif;
+  font-weight: 600;
+  font-size: 0.97rem;
+  background: var(--score-bad);
+  color: #c0392b;
+}
+[data-theme="dark"] .trickyChip {
+  background: #2a1010;
+}

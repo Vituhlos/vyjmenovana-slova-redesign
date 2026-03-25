@@ -1,0 +1,371 @@
+.page {
+  min-height: 100vh;
+  background: var(--app-bg);
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 20px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  box-shadow: var(--shadow-sm);
+}
+
+.backBtn {
+  background: var(--pill-bg);
+  border: 2px solid var(--border-mid);
+  border-radius: 12px;
+  padding: 8px 16px;
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 0.9rem;
+  color: var(--pill-text);
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.backBtn:hover { background: var(--chip-inactive-bg); }
+
+.pageTitle {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 1.2rem;
+  color: var(--text);
+  margin: 0;
+  flex: 1;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.csvBtn {
+  white-space: nowrap;
+}
+
+.tabBar {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--card-bg);
+  padding: 0 20px;
+  position: sticky;
+  top: 57px;
+  z-index: 40;
+}
+
+.tabBtn {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  padding: 12px 18px;
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 0.92rem;
+  color: var(--subtext);
+  cursor: pointer;
+  transition: color 0.15s;
+  margin-bottom: -1px;
+}
+
+.tabActive {
+  border-bottom-color: #2980b9;
+  color: #2980b9;
+}
+
+.main {
+  flex: 1;
+  padding: 20px;
+  max-width: 760px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.loading,
+.empty {
+  text-align: center;
+  font-family: 'Nunito', sans-serif;
+  color: var(--subtext);
+  padding: 48px 0;
+}
+
+/* Filter row */
+.filterRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+
+.filterActive {
+  background: #2980b9;
+  color: white;
+}
+
+/* Session card */
+.sessionCard {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.sessionHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  list-style: none;
+  transition: background 0.15s;
+  flex-wrap: wrap;
+}
+.sessionHeader:hover { background: var(--row-bg); }
+.sessionCard[open] .sessionHeader { background: var(--row-bg); }
+
+.letterBadge {
+  color: white;
+  border-radius: 8px;
+  padding: 4px 12px;
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+
+.sessionScore {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.9rem;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.sessionUser {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.78rem;
+  color: var(--subtext);
+}
+
+.sessionMeta {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.8rem;
+  color: var(--subtext);
+}
+
+.dur {
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.mistakesArea {
+  border-top: 1px solid var(--border);
+  background: var(--mistake-bg);
+}
+
+.mistakeRow {
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.mistakeRow:last-child { border-bottom: none; }
+
+.mistakeSentence {
+  font-family: 'Lora', serif;
+  font-size: 0.88rem;
+  color: var(--subtext);
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+.mistakeDetail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.84rem;
+  flex-wrap: wrap;
+}
+
+.wrong { color: #e74c3c; }
+.arrow { color: var(--muted); }
+.correct { color: #27ae60; }
+
+.noMistakes {
+  padding: 12px 16px;
+  font-family: 'Nunito', sans-serif;
+  font-weight: 700;
+  color: #27ae60;
+}
+
+/* Stats */
+.section {
+  margin-bottom: 28px;
+}
+
+.sectionTitle {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 1rem;
+  color: var(--text);
+  margin-bottom: 16px;
+}
+
+.compareBlock { margin-bottom: 18px; }
+
+.compareLabel {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--subtext);
+  margin-bottom: 7px;
+}
+
+.barRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.barName {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.78rem;
+  color: var(--text);
+  min-width: 60px;
+}
+
+.barTrack {
+  flex: 1;
+  height: 10px;
+  background: var(--bar-track);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.6s ease;
+}
+
+.barPct {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 800;
+  min-width: 38px;
+  text-align: right;
+}
+
+.statRow { margin-bottom: 18px; }
+
+.statHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.statLabel {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 0.92rem;
+  color: var(--text);
+}
+
+.statRight {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.84rem;
+  color: var(--subtext);
+}
+
+.totalsCard {
+  padding: 16px 18px;
+  background: var(--row-bg);
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+
+.totalRow {
+  display: flex;
+  justify-content: space-between;
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.84rem;
+  color: var(--subtext);
+  margin-bottom: 6px;
+}
+
+/* Badges */
+.badgesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 14px;
+}
+
+.badge {
+  padding: 16px 14px;
+  border-radius: 16px;
+  border: 2px solid;
+  transition: transform 0.15s;
+}
+.badge:hover { transform: translateY(-2px); }
+
+.badgeEarned {
+  background: var(--score-good);
+  border-color: #27ae60;
+}
+
+.badgeLocked {
+  background: var(--row-bg);
+  border-color: var(--border);
+  opacity: 0.55;
+}
+
+.badgeEmoji {
+  font-size: 1.9rem;
+  margin-bottom: 8px;
+}
+
+.badgeName {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 0.88rem;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.badgeDesc {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.76rem;
+  color: var(--subtext);
+  line-height: 1.4;
+}
+
+.badgeCheck {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #27ae60;
+  margin-top: 6px;
+}
+
+@media (max-width: 600px) {
+  .main { padding: 14px; }
+  .badgesGrid { grid-template-columns: 1fr 1fr; }
+}

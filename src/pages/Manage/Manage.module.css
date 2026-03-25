@@ -1,0 +1,345 @@
+.page {
+  min-height: 100vh;
+  background: var(--app-bg);
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 20px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  box-shadow: var(--shadow-sm);
+}
+
+.backBtn {
+  background: var(--pill-bg);
+  border: 2px solid var(--border-mid);
+  border-radius: 12px;
+  padding: 8px 16px;
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 0.9rem;
+  color: var(--pill-text);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.backBtn:hover { background: var(--chip-inactive-bg); }
+
+.pageTitle {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 1.2rem;
+  color: var(--text);
+  margin: 0;
+}
+
+.tabBar {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--card-bg);
+  padding: 0 20px;
+  position: sticky;
+  top: 57px;
+  z-index: 40;
+  overflow-x: auto;
+}
+
+.tabBtn {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  padding: 12px 18px;
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 0.92rem;
+  color: var(--subtext);
+  cursor: pointer;
+  white-space: nowrap;
+  margin-bottom: -1px;
+  transition: color 0.15s;
+}
+
+.tabActive {
+  border-bottom-color: #2980b9;
+  color: #2980b9;
+}
+
+.main {
+  flex: 1;
+  padding: 20px;
+  max-width: 760px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.sectionTitle {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 1rem;
+  color: var(--text);
+  margin-bottom: 16px;
+}
+
+.sectionSubtitle {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 0.9rem;
+  color: var(--text);
+  margin: 18px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* User list */
+.userRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.userInfo { flex: 1; }
+
+.userName {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.userRole {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.78rem;
+  color: var(--subtext);
+  margin-top: 2px;
+}
+
+.userActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.deleteChip {
+  background: #fff1f0 !important;
+  color: #b7412d !important;
+}
+[data-theme="dark"] .deleteChip {
+  background: #2a1010 !important;
+}
+
+.addBtn {
+  margin-top: 18px;
+  width: 100%;
+}
+
+/* Card */
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+.cardLabel {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.84rem;
+  color: var(--subtext);
+  margin-bottom: 10px;
+}
+
+.keySet { color: #27ae60; font-weight: 700; }
+.keyUnset { color: #e74c3c; }
+
+.keyRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.keyInput { flex: 1; font-size: 0.9rem; padding: 10px 12px; }
+
+.saveKeyBtn { background: #2980b9; color: white; white-space: nowrap; }
+
+.deleteKeyBtn { color: #e74c3c !important; }
+
+/* Notice */
+.notice {
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  margin-bottom: 14px;
+}
+.noticeSuccess { background: #eefaf1; color: #1f7a3f; }
+.noticeError { background: #fff4f2; color: #b7412d; }
+[data-theme="dark"] .noticeSuccess { background: #0d2218; }
+[data-theme="dark"] .noticeError { background: #280a0a; }
+
+.cardRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.toggleOn { background: #27ae60 !important; color: white !important; }
+
+.intervalRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.intervalLabel { font-family: 'Nunito', sans-serif; font-size: 0.8rem; color: var(--subtext); }
+.intervalActive { background: #2980b9 !important; color: white !important; }
+.lastRun { font-family: 'Nunito', sans-serif; font-size: 0.76rem; color: var(--subtext); }
+
+.statusRow {
+  display: flex;
+  gap: 8px;
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.82rem;
+  color: var(--subtext);
+  margin-bottom: 5px;
+}
+.statusLabel { flex-shrink: 0; }
+.aiError { font-family: 'Nunito', sans-serif; font-size: 0.82rem; color: #b7412d; margin-top: 6px; line-height: 1.4; }
+
+/* Letter rows */
+.letterRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+}
+.letterRow:last-child { border-bottom: none; }
+
+.letterLabel {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 0.88rem;
+  width: 72px;
+  flex-shrink: 0;
+}
+
+.letterCount {
+  flex: 1;
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.82rem;
+  color: var(--subtext);
+  line-height: 1.35;
+}
+
+.generateBtn { background: #27ae60 !important; color: white !important; }
+.deleteLetterBtn { color: #e74c3c !important; }
+
+/* Export buttons */
+.exportBtns { display: flex; gap: 8px; margin-left: auto; }
+.exportLink {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Letter selector */
+.letterSelector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+.letterSelectorActive { /* via inline style */ }
+
+/* AI sentence items */
+.aiSentItem {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.aiSentItem:last-child { border-bottom: none; }
+
+.aiSentText {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.84rem;
+  color: var(--text);
+  line-height: 1.45;
+  margin-bottom: 4px;
+}
+
+.aiSentMeta {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.76rem;
+  margin-bottom: 8px;
+}
+
+.aiSentActions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.restoreBtn { background: #eefaf1 !important; color: #1f7a3f !important; font-size: 0.76rem !important; }
+.hideBtn { background: #fff7e6 !important; color: #9a6b10 !important; font-size: 0.76rem !important; }
+.rejectBtn { background: #fff1f0 !important; color: #b7412d !important; font-size: 0.76rem !important; }
+.deleteSentBtn { font-size: 0.76rem !important; color: #e74c3c !important; }
+
+/* Model breakdown */
+.modelRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.modelRow:last-child { border-bottom: none; }
+.modelName { flex: 1; font-family: 'Nunito', sans-serif; font-size: 0.84rem; color: var(--text); }
+.modelCount { font-family: 'Nunito', sans-serif; font-size: 0.84rem; color: var(--subtext); }
+.deleteModelBtn { color: #e74c3c !important; }
+
+/* Problem sentences */
+.userChips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; align-items: center; }
+.problemUserActive { /* via inline style */ }
+
+.problemItem {
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--row-bg);
+  border: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+.problemSentence {
+  font-family: 'Lora', serif;
+  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.problemMeta {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.8rem;
+  color: #b7412d;
+  margin-top: 4px;
+}
+
+.loading, .empty {
+  font-family: 'Nunito', sans-serif;
+  font-size: 0.92rem;
+  color: var(--subtext);
+  padding: 24px 0;
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  .main { padding: 14px; }
+}

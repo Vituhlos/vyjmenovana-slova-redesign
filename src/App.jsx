@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CATEGORY_ORDER, SENTENCE_BANK, getBankSummary, getSentencePoolByCategories } from "./sentenceBank";
+import Avatar, { avatarColor as _avatarColor } from "./components/Avatar.jsx";
+import Sidebar from "./components/Sidebar.jsx";
+import MobileNav from "./components/MobileNav.jsx";
+import LoginView from "./components/views/LoginView.jsx";
+import ExerciseView from "./components/views/ExerciseView.jsx";
+import ParentDashboard from "./components/views/ParentDashboard.jsx";
+import HistoryPanel from "./components/panels/HistoryPanel.jsx";
+import TahakPanel from "./components/panels/TahakPanel.jsx";
+import SettingsPanel from "./components/panels/SettingsPanel.jsx";
+import PinModal from "./components/modals/PinModal.jsx";
+import ProfileModal from "./components/modals/ProfileModal.jsx";
 
 const TAB_META = {
   M: { color: "#c0392b", bg: "#fff5f5", accent: "#e74c3c", emoji: "🐭" },
@@ -216,24 +227,6 @@ async function resizeImage(file) {
     };
     img.src = url;
   });
-}
-
-// ── Avatar component ──────────────────────────────────────────────────────
-function Avatar({ user, size = 72, border }) {
-  const color = avatarColor(user.id);
-  const bStyle = border ? { border: `3px solid ${color}` } : {};
-  if (user.avatar) {
-    return (
-      <div style={{ width: size, height: size, borderRadius: "50%", overflow: "hidden", flexShrink: 0, ...bStyle }}>
-        <img src={user.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt={user.name} />
-      </div>
-    );
-  }
-  return (
-    <div style={{ width: size, height: size, borderRadius: "50%", background: color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.38, color: "white", fontFamily: "'Nunito', sans-serif", fontWeight: 800, flexShrink: 0, ...bStyle }}>
-      {user.name.charAt(0).toUpperCase()}
-    </div>
-  );
 }
 
 // ── App ───────────────────────────────────────────────────────────────────
@@ -847,6 +840,19 @@ export default function App() {
     };
   };
 
+  // ── Auto-generate helpers ─────────────────────────────────────────────────
+  const handleToggleAutoGenerate = useCallback(async () => {
+    if (!aiSettings) return;
+    const next = !aiSettings.auto_generate_enabled;
+    await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ auto_generate_enabled: next }) }).catch(() => {});
+    await loadAiSettings();
+  }, [aiSettings, loadAiSettings]);
+
+  const handleSetAutoInterval = useCallback(async (days) => {
+    await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ auto_generate_interval_days: days }) }).catch(() => {});
+    await loadAiSettings();
+  }, [loadAiSettings]);
+
   // ── Sdílené styly ─────────────────────────────────────────────────────────
   const sharedCSS = `
     @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&family=Lora:ital,wght@0,400;0,600;1,400&display=swap');
@@ -912,1016 +918,231 @@ export default function App() {
     "--border": t.border,
   };
 
-  // ── Modál pro PIN ─────────────────────────────────────────────────────────
-  const pinModalEl = pinModal && (
-    <div className="modal-overlay" style={{ background: t.overlayBg }} onClick={() => setPinModal(null)}>
-      <div className="modal-box" style={{ background: t.cardBg }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ textAlign: "center", marginBottom: 20 }}>
-          <Avatar user={pinModal} size={64} border />
-          <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "1.2rem", color: t.text, marginTop: 12 }}>
-            {pinModal.name}
-          </div>
-          <div style={{ color: t.subtext, fontSize: "0.88rem", marginTop: 4 }}>Zadej PIN</div>
-        </div>
-        <input
-          className="form-input"
-          type="password"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          maxLength={4}
-          placeholder="••••"
-          value={pinInput}
-          onChange={(e) => { setPinInput(e.target.value.replace(/\D/g, "").slice(0, 4)); setPinError(""); }}
-          onKeyDown={(e) => e.key === "Enter" && handlePinSubmit()}
-          autoFocus
-          style={{ background: t.inputBg, border: `2px solid ${t.inputBorder}`, color: t.text, textAlign: "center", fontSize: "1.4rem", letterSpacing: "0.5em", marginBottom: 8 }}
-        />
-        {pinError && <div style={{ color: "#e74c3c", fontSize: "0.85rem", fontFamily: "'Nunito', sans-serif", textAlign: "center", marginBottom: 8 }}>{pinError}</div>}
-        <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
-          <button className="check-btn" onClick={() => setPinModal(null)} style={{ flex: 1, background: t.pillBg, color: t.pillText, padding: "10px" }}>Zrušit</button>
-          <button className="check-btn" onClick={handlePinSubmit} style={{ flex: 1, background: avatarColor(pinModal.id), color: "white", padding: "10px" }}>Vstoupit</button>
-        </div>
-      </div>
-    </div>
-  );
-
-  // ── Modál pro profil (vytvoření / úprava) ─────────────────────────────────
-  const profileModalEl = profileModal && (
-    <div className="modal-overlay" style={{ background: t.overlayBg }} onClick={() => setProfileModal(null)}>
-      <div className="modal-box" style={{ background: t.cardBg }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "1.1rem", color: t.text, marginBottom: 20 }}>
-          {profileModal === "create" ? "Nový profil" : `Upravit: ${profileModal.name}`}
-        </div>
-
-        {/* Avatar upload */}
-        <input ref={avatarInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleAvatarChange} />
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
-          <div onClick={() => avatarInputRef.current?.click()} style={{ cursor: "pointer", position: "relative" }}>
-            {profileForm.avatar ? (
-              <div style={{ width: 80, height: 80, borderRadius: "50%", overflow: "hidden", border: `3px solid ${t.borderMid}` }}>
-                <img src={profileForm.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="avatar" />
-              </div>
-            ) : (
-              <div style={{ width: 80, height: 80, borderRadius: "50%", background: t.chipInactiveBg, border: `3px dashed ${t.borderMid}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.8rem" }}>
-                📷
-              </div>
-            )}
-            <div style={{ position: "absolute", bottom: 0, right: 0, background: t.cardBg, border: `2px solid ${t.borderMid}`, borderRadius: "50%", width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.75rem" }}>
-              ✏️
-            </div>
-          </div>
-        </div>
-
-        {/* Jméno */}
-        <input
-          className="form-input"
-          placeholder="Jméno"
-          value={profileForm.name}
-          onChange={(e) => setProfileForm((p) => ({ ...p, name: e.target.value }))}
-          style={{ background: t.inputBg, border: `2px solid ${t.inputBorder}`, color: t.text, marginBottom: 10 }}
-        />
-
-        {/* Role */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-          {["child", "parent"].map((role) => (
-            <button
-              key={role}
-              className="chip-btn"
-              onClick={() => setProfileForm((p) => ({ ...p, role }))}
-              style={{ flex: 1, padding: "8px", background: profileForm.role === role ? "#2980b9" : t.chipInactiveBg, color: profileForm.role === role ? "white" : t.chipInactiveText }}
-            >
-              {role === "child" ? "👦 Dítě" : "🔒 Rodič"}
-            </button>
-          ))}
-        </div>
-
-        {/* PIN (jen pro rodiče) */}
-        {profileForm.role === "parent" && (
-          <>
-            <input
-              className="form-input"
-              type="password"
-              inputMode="numeric"
-              maxLength={4}
-              placeholder={profileModal === "create" ? "PIN (4 číslice)" : "Nový PIN (nechej prázdné = beze změny)"}
-              value={profileForm.pin}
-              onChange={(e) => setProfileForm((p) => ({ ...p, pin: e.target.value.replace(/\D/g, "").slice(0, 4) }))}
-              style={{ background: t.inputBg, border: `2px solid ${t.inputBorder}`, color: t.text, marginBottom: 8, textAlign: "center", letterSpacing: "0.4em" }}
-            />
-            {profileForm.pin && (
-              <input
-                className="form-input"
-                type="password"
-                inputMode="numeric"
-                maxLength={4}
-                placeholder="Potvrď PIN"
-                value={profileForm.pin2}
-                onChange={(e) => setProfileForm((p) => ({ ...p, pin2: e.target.value.replace(/\D/g, "").slice(0, 4) }))}
-                style={{ background: t.inputBg, border: `2px solid ${t.inputBorder}`, color: t.text, marginBottom: 8, textAlign: "center", letterSpacing: "0.4em" }}
-              />
-            )}
-          </>
-        )}
-
-        {profileError && <div style={{ color: "#e74c3c", fontSize: "0.85rem", fontFamily: "'Nunito', sans-serif", marginBottom: 10 }}>{profileError}</div>}
-
-        <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-          <button className="check-btn" onClick={() => setProfileModal(null)} style={{ flex: 1, background: t.pillBg, color: t.pillText, padding: "10px" }}>Zrušit</button>
-          <button className="check-btn" onClick={handleSaveProfile} disabled={profileSaving} style={{ flex: 1, background: "#2980b9", color: "white", padding: "10px" }}>
-            {profileSaving ? "Ukládám…" : "Uložit"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
   // ── Obrazovka výběru profilu ───────────────────────────────────────────────
   if (!currentUser) {
     return (
-      <div data-dark={darkMode ? "true" : "false"} style={{ ...rootStyle, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 16px" }}>
+      <div data-dark={darkMode ? "true" : "false"}>
         <style>{sharedCSS}</style>
-        <div style={{ position: "fixed", top: 16, right: 16, display: "flex", gap: 8 }}>
-          <button onClick={() => setDarkMode((d) => !d)} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 12px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.pillText, cursor: "pointer" }}>
-            {darkMode ? "☀️" : "🌙"}
-          </button>
-        </div>
-
-        <div style={{ fontSize: "2.4rem", fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, letterSpacing: "-1px", marginBottom: 6 }}>
-          Vyjmenovaná slova
-        </div>
-        <div style={{ fontSize: "0.95rem", color: t.subtext, fontFamily: "'Lora', serif", fontStyle: "italic", marginBottom: 40 }}>
-          Kdo dnes cvičí?
-        </div>
-
-        {users === null && (
-          <div style={{ color: t.subtext, fontFamily: "'Nunito', sans-serif" }}>Načítám…</div>
+        <LoginView
+          users={users}
+          darkMode={darkMode}
+          setDarkMode={setDarkMode}
+          onSelectUser={handleSelectUser}
+          onCreateProfile={openCreate}
+        />
+        {pinModal && (
+          <PinModal
+            user={pinModal}
+            pinInput={pinInput}
+            setPinInput={setPinInput}
+            pinError={pinError}
+            onSubmit={handlePinSubmit}
+            onClose={() => setPinModal(null)}
+            darkMode={darkMode}
+          />
         )}
-
-        {users !== null && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 16, justifyContent: "center", maxWidth: 700 }}>
-            {users.map((user) => (
-              <div key={user.id} className="profile-card" onClick={() => handleSelectUser(user)}>
-                <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}>
-                  <Avatar user={user} size={72} border />
-                </div>
-                <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "1rem", color: t.text, marginBottom: 2 }}>
-                  {user.name}
-                </div>
-                {user.role === "parent" && (
-                  <div style={{ fontSize: "0.78rem", color: t.subtext, fontFamily: "'Nunito', sans-serif" }}>🔒 Rodič</div>
-                )}
-              </div>
-            ))}
-
-            {/* Přidat profil */}
-            <div className="profile-card" onClick={openCreate} style={{ border: `2px dashed ${t.borderMid}`, cursor: "pointer" }}>
-              <div style={{ width: 72, height: 72, borderRadius: "50%", background: t.chipInactiveBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "2rem", margin: "0 auto 12px" }}>
-                +
-              </div>
-              <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: "0.9rem", color: t.subtext }}>
-                Přidat profil
-              </div>
-            </div>
-          </div>
+        {profileModal && (
+          <ProfileModal
+            profileModal={profileModal}
+            profileForm={profileForm}
+            setProfileForm={setProfileForm}
+            profileError={profileError}
+            profileSaving={profileSaving}
+            onSave={handleSaveProfile}
+            onClose={() => setProfileModal(null)}
+            onAvatarChange={handleAvatarChange}
+            avatarInputRef={avatarInputRef}
+            darkMode={darkMode}
+          />
         )}
-
-        {pinModalEl}
-        {profileModalEl}
       </div>
     );
   }
 
-  // ── Správa profilů (přístupná pro rodiče) ─────────────────────────────────
-  const managePanel = showManage && (
-    <div className="history-overlay" style={{ background: t.overlayBg }} onClick={() => setShowManage(false)}>
-      <div className="history-panel" style={{ background: t.panelBg }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ padding: "18px 20px 14px", borderBottom: `1px solid ${t.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: t.panelBg, position: "sticky", top: 0, zIndex: 1 }}>
-          <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "1.1rem", color: t.text }}>⚙️ Profily</span>
-          <button onClick={() => setShowManage(false)} style={{ background: "none", border: "none", fontSize: "1.4rem", cursor: "pointer", color: t.subtext }}>✕</button>
-        </div>
-        <div style={{ padding: "16px 20px" }}>
-          {(users || []).map((user) => (
-            <div key={user.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: `1px solid ${t.border}` }}>
-              <Avatar user={user} size={44} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, fontSize: "0.95rem" }}>{user.name}</div>
-                <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", color: t.subtext }}>{user.role === "parent" ? "🔒 Rodič" : "👦 Dítě"}</div>
-              </div>
-              <button className="chip-btn" onClick={() => openEdit(user)} style={{ background: t.chipInactiveBg, color: t.chipInactiveText }}>✏️</button>
-              {user.id !== currentUser.id && (
-                <button className="chip-btn" onClick={() => handleDeleteProfile(user)} style={{ background: "#f8d7da", color: "#721c24" }}>🗑</button>
-              )}
-            </div>
-          ))}
-          <button className="check-btn" onClick={openCreate} style={{ marginTop: 16, width: "100%", background: "#2980b9", color: "white" }}>
-            + Přidat profil
-          </button>
-
-          {/* AI sekce */}
-          <div style={{ marginTop: 24, borderTop: `1px solid ${t.border}`, paddingTop: 20 }}>
-            <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, marginBottom: 14, fontSize: "1rem" }}>
-              🤖 AI generování vět
-            </div>
-            {aiSettings === null && (
-              <div style={{ color: t.subtext, fontFamily: "'Nunito', sans-serif", fontSize: "0.85rem" }}>Načítám…</div>
-            )}
-            {aiSettings !== null && (
-              <>
-                <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.82rem", color: t.subtext, marginBottom: 8 }}>
-                    Gemini API klíč:{" "}
-                    {aiSettings.gemini_key_set
-                      ? <span style={{ color: "#27ae60", fontWeight: 700 }}>✓ nastaven</span>
-                      : <span style={{ color: "#e74c3c" }}>✗ není nastaven</span>}
-                  </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <input
-                      className="form-input"
-                      type="password"
-                      placeholder={aiSettings.gemini_key_set ? "Změnit klíč…" : "Vložit API klíč…"}
-                      value={aiKeyInput}
-                      onChange={(e) => setAiKeyInput(e.target.value)}
-                      style={{ background: t.inputBg, border: `2px solid ${t.inputBorder}`, color: t.text, flex: 1, padding: "8px 12px", fontSize: "0.9rem" }}
-                    />
-                    <button className="chip-btn" onClick={handleSaveAiKey} disabled={!aiKeyInput} style={{ background: "#2980b9", color: "white", whiteSpace: "nowrap" }}>
-                      Uložit
-                    </button>
-                    {aiSettings.gemini_key_set && (
-                      <button className="chip-btn" onClick={handleDeleteAiKey} style={{ background: t.chipInactiveBg, color: "#e74c3c" }} title="Smazat klíč">
-                        🗑
-                      </button>
-                    )}
-                  </div>
-                </div>
-                {aiNotice && (
-                  <div
-                    style={{
-                      marginBottom: 12,
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      background: aiNotice.type === "error" ? "#fff4f2" : "#eefaf1",
-                      color: aiNotice.type === "error" ? "#b7412d" : "#1f7a3f",
-                      fontFamily: "'Nunito', sans-serif",
-                      fontSize: "0.82rem",
-                      lineHeight: 1.45,
-                    }}
-                  >
-                    {aiNotice.text}
-                  </div>
-                )}
-                {aiSettings.gemini_key_set && (
-                  <div>
-                    <div style={{ marginBottom: 14, padding: "12px 12px", borderRadius: 10, background: t.rowBg, border: `1px solid ${t.border}` }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                        <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.85rem", color: t.text }}>⏰ Auto-generování</span>
-                        <button
-                          className="chip-btn"
-                          onClick={async () => {
-                            const next = !aiSettings.auto_generate_enabled;
-                            await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ auto_generate_enabled: next }) });
-                            await loadAiSettings();
-                          }}
-                          style={{ background: aiSettings.auto_generate_enabled ? "#27ae60" : t.chipInactiveBg, color: aiSettings.auto_generate_enabled ? "white" : t.chipInactiveText, fontSize: "0.78rem" }}
-                        >
-                          {aiSettings.auto_generate_enabled ? "Zapnuto" : "Vypnuto"}
-                        </button>
-                      </div>
-                      {aiSettings.auto_generate_enabled && (
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", color: t.subtext }}>Interval:</span>
-                          {[3, 7, 14, 30].map((d) => (
-                            <button key={d} className="chip-btn" onClick={async () => { await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ auto_generate_interval_days: d }) }); await loadAiSettings(); }} style={{ background: aiSettings.auto_generate_interval_days === d ? "#2980b9" : t.chipInactiveBg, color: aiSettings.auto_generate_interval_days === d ? "white" : t.chipInactiveText, fontSize: "0.75rem" }}>
-                              {d}d
-                            </button>
-                          ))}
-                          {aiSettings.auto_generate_last_run && (
-                            <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.74rem", color: t.subtext, marginLeft: 4 }}>
-                              naposledy {formatDateTime(aiSettings.auto_generate_last_run)}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", color: t.subtext, marginBottom: 8 }}>
-                      Každé generování přidá ~{aiSettings.ai_target_per_generate ?? 20} vět (Google Gemini · zdarma)
-                    </div>
-                    <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: t.rowBg, border: `1px solid ${t.border}` }}>
-                      <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", color: t.subtext, marginBottom: 4 }}>
-                        Poslední úspěšné generování: <strong style={{ color: t.text }}>{formatDateTime(aiSettings.ai_status?.last_success_at)}</strong>
-                      </div>
-                      <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", color: t.subtext, marginBottom: 4 }}>
-                        Poslední model: <strong style={{ color: t.text }}>{aiSettings.ai_status?.last_model || "—"}</strong>
-                      </div>
-                      <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", color: t.subtext, marginBottom: aiSettings.ai_status?.last_error ? 6 : 0 }}>
-                        Retry pokusy naposledy: <strong style={{ color: t.text }}>{aiSettings.ai_status?.retries ?? 0}</strong>
-                      </div>
-                      {aiSettings.ai_status?.last_error && (
-                        <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", color: "#b7412d", lineHeight: 1.45 }}>
-                          Poslední AI chyba: {aiSettings.ai_status.last_error}
-                        </div>
-                      )}
-                    </div>
-                    {aiDebug?.ai_status?.last_attempts?.length > 0 && (
-                      <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: 10, background: t.rowBg, border: `1px solid ${t.border}` }}>
-                        <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, marginBottom: 8, fontSize: "0.88rem" }}>
-                          Poslední AI pokusy
-                        </div>
-                        {aiDebug.ai_status.last_attempts.slice(0, 5).map((attempt, idx) => (
-                          <div key={`${attempt.at}-${idx}`} style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", color: t.subtext, marginBottom: 5, lineHeight: 1.4 }}>
-                            {formatDateTime(attempt.at)} · <strong style={{ color: t.text }}>{attempt.model}</strong> · {attempt.outcome}
-                            {attempt.error ? ` · ${attempt.error}` : ""}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {LETTERS.map((letter) => {
-                      const count = aiSettings.ai_counts?.[letter] ?? 0;
-                      const isGenerating = aiGenerating === letter;
-                      const overview = aiSettings.ai_overview?.[letter];
-                      return (
-                        <div key={letter} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${t.border}` }}>
-                          <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: TAB_META[letter].color, width: 64, fontSize: "0.88rem", flexShrink: 0 }}>
-                            {TAB_META[letter].emoji} Po {letter}
-                          </span>
-                          <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.82rem", color: t.subtext, flex: 1, lineHeight: 1.35 }}>
-                            {count}{aiSettings.ai_limit_per_letter ? ` / ${aiSettings.ai_limit_per_letter}` : ""} vět
-                            {overview && ` · skryté ${overview.hidden} · špatné ${overview.rejected}`}
-                          </span>
-                          <button
-                            className="chip-btn"
-                            onClick={() => handleGenerateAI(letter)}
-                            disabled={!!aiGenerating}
-                            style={{ background: isGenerating ? t.chipInactiveBg : "#27ae60", color: isGenerating ? t.subtext : "white", fontSize: "0.78rem" }}
-                          >
-                            {isGenerating ? "Generuji…" : count > 0 ? "+ Doplnit" : "+ Generovat"}
-                          </button>
-                          {count > 0 && (
-                            <button
-                              className="chip-btn"
-                              onClick={() => handleDeleteAISentences(letter)}
-                              disabled={!!aiGenerating}
-                              style={{ background: t.chipInactiveBg, color: "#e74c3c", fontSize: "0.78rem" }}
-                              title="Smazat AI věty"
-                            >
-                              🗑
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                    <div style={{ marginTop: 16, padding: "12px 12px 8px", borderRadius: 12, background: t.rowBg, border: `1px solid ${t.border}` }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, fontSize: "0.88rem" }}>
-                            Správa AI vět
-                          </div>
-                          <a
-                            href="/api/export-sentences"
-                            download="vety-ai.csv"
-                            style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.75rem", fontWeight: 700, background: t.pillBg, color: t.subtext, border: `1px solid ${t.borderMid}`, borderRadius: 8, padding: "3px 10px", textDecoration: "none", whiteSpace: "nowrap" }}
-                          >
-                            ⬇ AI CSV
-                          </a>
-                          <button
-                            className="chip-btn"
-                            onClick={() => exportLocalBankCSV()}
-                            style={{ fontSize: "0.75rem", background: t.pillBg, color: t.subtext, border: `1px solid ${t.borderMid}` }}
-                          >
-                            ⬇ Lokální CSV
-                          </button>
-                        </div>
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          {LETTERS.map((letter) => (
-                            <button
-                              key={letter}
-                              className="chip-btn"
-                              onClick={() => { setAiManageLetter(letter); loadAiManageSentences(letter); }}
-                              style={{ background: aiManageLetter === letter ? TAB_META[letter].accent : t.chipInactiveBg, color: aiManageLetter === letter ? "white" : t.chipInactiveText, fontSize: "0.75rem" }}
-                            >
-                              {letter}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      {aiManageLoading && (
-                        <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", color: t.subtext, padding: "8px 0" }}>
-                          Načítám AI věty…
-                        </div>
-                      )}
-                      {!aiManageLoading && aiManageSentences.length === 0 && (
-                        <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", color: t.subtext, padding: "8px 0" }}>
-                          Pro písmeno {aiManageLetter} zatím nejsou uložené žádné AI věty.
-                        </div>
-                      )}
-                      {!aiManageLoading && aiManageSentences.slice(0, 12).map((item) => {
-                        const sentenceText = item.sentence?.parts?.map((part) => ("text" in part ? part.text : `[${part.blank}]`)).join("") || "—";
-                        const statusColor = item.review_status === "active" ? "#1f7a3f" : item.review_status === "hidden" ? "#8c6d1f" : "#b7412d";
-                        return (
-                          <div key={item.id} style={{ padding: "9px 0", borderTop: `1px solid ${t.border}` }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.82rem", color: t.text, lineHeight: 1.45 }}>
-                                  {sentenceText}
-                                </div>
-                                <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.74rem", color: statusColor, marginTop: 4 }}>
-                                  {item.review_status} · {formatDateTime(item.created_at)}{item.source_model ? ` · ${item.source_model}` : ""}
-                                </div>
-                              </div>
-                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                {item.review_status !== "active" && (
-                                  <button className="chip-btn" onClick={() => handleReviewAISentence(item.id, "active")} style={{ background: "#eefaf1", color: "#1f7a3f", fontSize: "0.74rem" }}>
-                                    Obnovit
-                                  </button>
-                                )}
-                                {item.review_status !== "hidden" && (
-                                  <button className="chip-btn" onClick={() => handleReviewAISentence(item.id, "hidden")} style={{ background: "#fff7e6", color: "#9a6b10", fontSize: "0.74rem" }}>
-                                    Skrýt
-                                  </button>
-                                )}
-                                {item.review_status !== "rejected" && (
-                                  <button className="chip-btn" onClick={() => handleReviewAISentence(item.id, "rejected")} style={{ background: "#fff1f0", color: "#b7412d", fontSize: "0.74rem" }}>
-                                    Špatná
-                                  </button>
-                                )}
-                                <button className="chip-btn" onClick={() => handleDeleteAISentenceItem(item.id)} style={{ background: t.chipInactiveBg, color: "#e74c3c", fontSize: "0.74rem" }}>
-                                  Smazat
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {aiSettings.ai_model_breakdown?.length > 0 && (
-                      <div style={{ marginTop: 16, padding: "12px 12px 8px", borderRadius: 12, background: t.rowBg, border: `1px solid ${t.border}` }}>
-                        <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, marginBottom: 10, fontSize: "0.88rem" }}>
-                          Věty podle modelu
-                        </div>
-                        {aiSettings.ai_model_breakdown.map((item) => (
-                          <div key={item.source_model} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderTop: `1px solid ${t.border}` }}>
-                            <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.82rem", color: t.text, flex: 1 }}>{item.source_model ?? "—"}</span>
-                            <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.82rem", color: t.subtext }}>{item.n} vět</span>
-                            <button className="chip-btn" onClick={() => handleDeleteByModel(item.source_model)} disabled={!!aiGenerating} style={{ background: t.chipInactiveBg, color: "#e74c3c", fontSize: "0.74rem" }}>
-                              🗑 Smazat
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-          {currentUser?.role === "parent" && users && users.length > 0 && (
-            <div style={{ marginTop: 24, borderTop: `1px solid ${t.border}`, paddingTop: 20 }}>
-              <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, marginBottom: 14, fontSize: "1rem" }}>
-                🔴 Problémové věty
-              </div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-                {users.map((u) => (
-                  <button key={u.id} className="chip-btn" onClick={() => { setProblemSentsUser(u.id); loadProblemSents(u.id); }} style={{ background: problemSentsUser === u.id ? avatarColor(u.id) : t.chipInactiveBg, color: problemSentsUser === u.id ? "white" : t.chipInactiveText, display: "flex", alignItems: "center", gap: 5 }}>
-                    <Avatar user={u} size={14} />
-                    {u.name}
-                  </button>
-                ))}
-              </div>
-              {problemSentsLoading && <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.85rem", color: t.subtext }}>Načítám…</div>}
-              {!problemSentsLoading && problemSents !== null && problemSents.length === 0 && (
-                <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.85rem", color: t.subtext }}>Žádné chyby nenalezeny.</div>
-              )}
-              {!problemSentsLoading && problemSents !== null && problemSents.length > 0 && problemSents.map((item, i) => (
-                <div key={i} style={{ padding: "8px 10px", borderRadius: 8, marginBottom: 6, background: t.rowBg, border: `1px solid ${t.border}` }}>
-                  <div style={{ fontFamily: "'Lora', serif", fontSize: "0.88rem", color: t.text, lineHeight: 1.45 }}>{item.sentence}</div>
-                  <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", color: "#b7412d", marginTop: 3 }}>
-                    {item.errors}× špatně · správně: <strong>{item.expected}</strong>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        {profileModalEl}
-      </div>
-    </div>
-  );
-
   // ── Hlavní UI ────────────────────────────────────────────────────────────
   return (
-    <div data-dark={darkMode ? "true" : "false"} style={{ ...rootStyle, padding: "24px 16px" }}>
+    <div
+      data-dark={darkMode ? "true" : "false"}
+      className={`flex h-screen overflow-hidden ${darkMode ? "bg-gray-950" : "bg-slate-50"}`}
+    >
       <style>{sharedCSS}</style>
 
-      {/* Header */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: "2.4rem", fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, letterSpacing: "-1px" }}>
-            Vyjmenovaná slova
-          </div>
-          <div style={{ fontSize: "0.95rem", color: t.subtext, fontFamily: "'Lora', serif", fontStyle: "italic", marginTop: 4 }}>
-            Doplň správně <strong>i</strong> nebo <strong>y</strong> (popřípadě <strong>í / ý</strong>)
-          </div>
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-          {/* Levá strana: uživatel + správa */}
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <div onClick={handleLogout} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 7, background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "5px 10px 5px 6px" }} title="Odhlásit / Změnit uživatele">
-              <Avatar user={currentUser} size={26} />
-              <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.85rem", color: t.pillText }}>{currentUser.name}</span>
-            </div>
-            {streakData && streakData.streak > 0 && (
-              <div style={{ display: "flex", alignItems: "center", gap: 4, background: darkMode ? "#2a1f00" : "#fff3cd", border: "2px solid #f39c12", borderRadius: 10, padding: "5px 10px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.85rem", color: "#c0790d" }} title={`${streakData.streak} dní v řadě!`}>
-                🔥 {streakData.streak}
-              </div>
-            )}
-            {currentUser.role === "parent" && (
-              <button onClick={() => { loadUsers(); loadAiSettings(); loadAiDebug(); loadAiManageSentences(aiManageLetter); setShowManage(true); }} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 10px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.88rem", color: t.pillText, cursor: "pointer" }}>
-                ⚙️
-              </button>
-            )}
-          </div>
-          {/* Pravá strana: akce */}
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button onClick={() => setSoundOn((s) => !s)} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 12px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.9rem", color: t.pillText, cursor: "pointer" }}>
-              {soundOn ? "🔊" : "🔇"}
-            </button>
-            <button onClick={() => setDarkMode((d) => !d)} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 12px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.9rem", color: t.pillText, cursor: "pointer" }}>
-              {darkMode ? "☀️" : "🌙"}
-            </button>
-            <button onClick={() => setShowTahak(true)} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 14px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.88rem", color: t.pillText, cursor: "pointer" }}>
-              📖 Tahák
-            </button>
-            <button onClick={loadHistory} style={{ background: t.pillBg, border: `2px solid ${t.borderMid}`, borderRadius: 10, padding: "7px 14px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.88rem", color: t.pillText, cursor: "pointer" }}>
-              📊 Historie
-            </button>
-          </div>
-        </div>
+      {/* Sidebar (desktop) */}
+      <div className="hidden md:flex md:w-60 lg:w-64 flex-shrink-0 h-full">
+        <Sidebar
+          currentUser={currentUser}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          score={score}
+          streakData={streakData}
+          darkMode={darkMode}
+          setDarkMode={setDarkMode}
+          soundOn={soundOn}
+          setSoundOn={setSoundOn}
+          onLogout={handleLogout}
+          onShowHistory={loadHistory}
+          onShowTahak={() => setShowTahak(true)}
+          onShowSettings={() => { loadUsers(); loadAiSettings(); loadAiDebug(); loadAiManageSentences(aiManageLetter); setShowManage(true); }}
+          onReviewTab={() => { setSentences(prev => ({ ...prev, REVIEW: null })); setActiveTab("REVIEW"); }}
+        />
       </div>
 
-      {/* Letter tabs */}
-      <div style={{ display: "flex", justifyContent: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
-        {Object.entries(TAB_META).map(([letter, meta]) => (
-          <button
-            key={letter}
-            className="tab-btn"
-            onClick={() => setActiveTab(letter)}
-            style={{ background: activeTab === letter ? meta.accent : t.tabInactiveBg, color: activeTab === letter ? "white" : meta.accent, borderColor: meta.accent, boxShadow: activeTab === letter ? `0 4px 14px ${meta.accent}55` : "0 2px 6px rgba(0,0,0,0.08)" }}
-          >
-            {meta.emoji} Po {letter}
-            {score[letter] && (
-              <span style={{ marginLeft: 8, background: "rgba(255,255,255,0.25)", borderRadius: 6, padding: "1px 7px", fontSize: "0.82rem" }}>
-                {score[letter].correct}/{score[letter].total}
-              </span>
-            )}
-          </button>
-        ))}
-        <button
-          className="tab-btn"
-          onClick={() => setActiveTab("MIX")}
-          style={{ background: activeTab === "MIX" ? MIX_META.accent : t.tabInactiveBg, color: activeTab === "MIX" ? "white" : MIX_META.accent, borderColor: MIX_META.accent, boxShadow: activeTab === "MIX" ? `0 4px 14px ${MIX_META.accent}55` : "0 2px 6px rgba(0,0,0,0.08)" }}
-        >
-          {MIX_META.emoji} MIX
-          {score["MIX"] && (
-            <span style={{ marginLeft: 8, background: "rgba(255,255,255,0.25)", borderRadius: 6, padding: "1px 7px", fontSize: "0.82rem" }}>
-              {score["MIX"].correct}/{score["MIX"].total}
-            </span>
-          )}
-        </button>
-        {currentUser?.role !== "parent" && (
-          <button
-            className="tab-btn"
-            onClick={() => { setSentences((prev) => ({ ...prev, REVIEW: null })); setActiveTab("REVIEW"); }}
-            style={{ background: activeTab === "REVIEW" ? REVIEW_META.accent : t.tabInactiveBg, color: activeTab === "REVIEW" ? "white" : REVIEW_META.accent, borderColor: REVIEW_META.accent, boxShadow: activeTab === "REVIEW" ? `0 4px 14px ${REVIEW_META.accent}55` : "0 2px 6px rgba(0,0,0,0.08)" }}
-          >
-            {REVIEW_META.emoji} Procvič chyby
-            {score["REVIEW"] && (
-              <span style={{ marginLeft: 8, background: "rgba(255,255,255,0.25)", borderRadius: 6, padding: "1px 7px", fontSize: "0.82rem" }}>
-                {score["REVIEW"].correct}/{score["REVIEW"].total}
-              </span>
-            )}
-          </button>
+      {/* Main content */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {currentUser?.role === "parent" ? (
+          <ParentDashboard
+            darkMode={darkMode}
+            users={users}
+            sessions={sessions}
+            stats={stats}
+            statsByUser={statsByUser}
+            streakDataByUser={null}
+            onShowHistory={loadHistory}
+            onShowSettings={() => { loadUsers(); loadAiSettings(); loadAiDebug(); loadAiManageSentences(aiManageLetter); setShowManage(true); }}
+            onSwitchToExercise={() => setActiveTab("M")}
+          />
+        ) : (
+          <ExerciseView
+            activeTab={activeTab}
+            darkMode={darkMode}
+            sentences={sentences}
+            inputs={inputs}
+            checked={checked}
+            score={score}
+            sentenceCount={sentenceCount}
+            setSentenceCount={setSentenceCount}
+            activeCats={activeCats}
+            toggleCat={toggleCat}
+            SELECTABLE_CATS={SELECTABLE_CATS}
+            bankSummary={bankSummary}
+            activeAiCount={activeAiCount}
+            onNewSentences={loadSentences}
+            onInput={handleInput}
+            onCheck={checkAnswers}
+            onClear={clearInputs}
+          />
         )}
       </div>
 
-      {/* Settings bar */}
-      <div style={{ maxWidth: 700, margin: "0 auto 16px", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", padding: "10px 16px", background: t.settingsBg, borderRadius: 14, boxShadow: "0 2px 10px rgba(0,0,0,0.06)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: t.subtext, whiteSpace: "nowrap" }}>Vět:</span>
-          {COUNTS.map((n) => (
-            <button key={n} className="chip-btn" onClick={() => setSentenceCount(n)} style={{ background: sentenceCount === n ? data.accent : t.chipInactiveBg, color: sentenceCount === n ? "white" : t.chipInactiveText }}>{n}</button>
-          ))}
-        </div>
-        <div style={{ width: 1, height: 22, background: t.border, flexShrink: 0 }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", fontWeight: 700, color: t.subtext, whiteSpace: "nowrap" }}>Typ:</span>
-          {SELECTABLE_CATS.map((cat) => {
-            const active = activeCats.includes(cat);
-            return (
-              <button key={cat} className="chip-btn" onClick={() => toggleCat(cat)} style={{ background: active ? t.chipActiveBg : t.chipInactiveBg, color: active ? t.chipActiveText : t.chipInactiveText, textDecoration: active ? "none" : "line-through" }}>
-                {CAT_LABELS[cat]}
-              </button>
-            );
-          })}
-          <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", color: t.subtext, whiteSpace: "nowrap" }}>+ Chytáky vždy</span>
-        </div>
-      </div>
-
-      {/* Exercise card */}
-      <div style={{ maxWidth: 700, margin: "0 auto", "--accent": data.accent }}>
-        <div style={{ background: t.cardBg, borderRadius: 20, padding: "26px 24px", boxShadow: "0 8px 32px rgba(0,0,0,0.1)" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12, flexWrap: "wrap" }}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: "1.7rem" }}>{data.emoji}</span>
-                <span style={{ fontSize: "1.15rem", fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: data.color }}>{activeTab === "MIX" ? "Všechna písmena" : activeTab === "REVIEW" ? "Procvič chyby" : `Po ${activeTab}`}</span>
-              </div>
-              {bankSummary && (
-                <div style={{ marginTop: 4, fontSize: "0.8rem", fontFamily: "'Nunito', sans-serif", color: t.subtext }}>
-                  Místní databáze: {bankSummary.total} / {bankSummary.targetTotal} vět
-                  {activeAiCount > 0 && ` · AI věty: ${activeAiCount} · Celkem: ${totalSentencePool}`}
-                </div>
-              )}
-            </div>
-            <button className="check-btn" onClick={() => loadSentences(activeTab)} style={{ background: numBg, color: data.accent, fontSize: "0.88rem", padding: "7px 16px", border: `2px solid ${data.accent}` }}>
-              ↻ Nové věty
-            </button>
-          </div>
-
-          {currentSentences?.map((sentence, si) => {
-            let blankCounter = 0;
-            const partsWithIdx = sentence.parts.map((p) => ("blank" in p ? { ...p, bi: blankCounter++ } : p));
-            return (
-              <div key={`${activeTab}-${si}`} className="sentence-row" style={{ background: t.rowBg }}>
-                <span className="num" style={{ background: numBg, color: data.accent }}>{si + 1}</span>
-                <span>
-                  {(() => {
-                    const result = [];
-                    let pi = 0;
-                    while (pi < partsWithIdx.length) {
-                      const p = partsWithIdx[pi];
-                      if ("blank" in p) {
-                        const { bi, blank } = p;
-                        const val = inputs[activeTab]?.[si]?.[bi] || "";
-                        const isWrong = checked[activeTab] && val.toLowerCase() !== blank.toLowerCase();
-                        const isCorrect = checked[activeTab] && val.toLowerCase() === blank.toLowerCase();
-                        result.push(
-                          <span key={pi} style={{ whiteSpace: "nowrap" }}>
-                            <input className={`blank-input${isWrong ? " anim-wrong" : isCorrect ? " anim-correct" : ""}`} value={val} onChange={(e) => handleInput(si, bi, e.target.value)} onKeyDown={(e) => e.key === "Enter" && checkAnswers()} maxLength={2} style={blankStyle(si, bi, blank)} />
-                            {isWrong && <span className="hint">({blank})</span>}
-                          </span>
-                        );
-                        pi++; continue;
-                      }
-                      const nextP = partsWithIdx[pi + 1];
-                      if (!nextP || "text" in nextP) { result.push(<span key={pi} style={{ color: t.text }}>{p.text}</span>); pi++; continue; }
-                      const { bi, blank } = nextP;
-                      const val = inputs[activeTab]?.[si]?.[bi] || "";
-                      const isWrong = checked[activeTab] && val.toLowerCase() !== blank.toLowerCase();
-                      const isCorrect = checked[activeTab] && val.toLowerCase() === blank.toLowerCase();
-                      const lastSpace = p.text.lastIndexOf(" ");
-                      const textBefore = lastSpace >= 0 ? p.text.slice(0, lastSpace + 1) : "";
-                      const wordBefore = lastSpace >= 0 ? p.text.slice(lastSpace + 1) : p.text;
-                      const afterP = partsWithIdx[pi + 2];
-                      let wordAfter = "", textAfter = "", advance = 2;
-                      if (afterP && "text" in afterP) {
-                        const fs = afterP.text.indexOf(" ");
-                        wordAfter = fs >= 0 ? afterP.text.slice(0, fs) : afterP.text;
-                        textAfter = fs >= 0 ? afterP.text.slice(fs) : "";
-                        advance = 3;
-                      }
-                      result.push(
-                        <span key={pi}>
-                          {textBefore && <span style={{ color: t.text }}>{textBefore}</span>}
-                          <span style={{ whiteSpace: "nowrap" }}>
-                            {wordBefore && <span style={{ color: t.text }}>{wordBefore}</span>}
-                            <input className={`blank-input${isWrong ? " anim-wrong" : isCorrect ? " anim-correct" : ""}`} value={val} onChange={(e) => handleInput(si, bi, e.target.value)} onKeyDown={(e) => e.key === "Enter" && checkAnswers()} maxLength={2} style={blankStyle(si, bi, blank)} />
-                            {isWrong && <span className="hint">({blank})</span>}
-                            {wordAfter && <span style={{ color: t.text }}>{wordAfter}</span>}
-                          </span>
-                          {textAfter && <span style={{ color: t.text }}>{textAfter}</span>}
-                        </span>
-                      );
-                      pi += advance;
-                    }
-                    return result;
-                  })()}
-                </span>
-              </div>
-            );
-          })}
-
-          {checked[activeTab] && score[activeTab] && (() => {
-            const { correct, total } = score[activeTab];
-            const bg = correct === total ? t.scoreGood : correct >= Math.ceil(total / 2) ? t.scoreMid : t.scoreBad;
-            return (
-              <div style={{ margin: "18px 0 14px", textAlign: "center", padding: 14, borderRadius: 12, background: bg }}>
-                <div style={{ fontSize: "1.4rem", marginBottom: 2 }}>{correct === total ? "🏆" : correct >= 4 ? "🌟" : "💪"}</div>
-                <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, fontSize: "1.05rem" }}>
-                  {correct} / {total} správně{" "}
-                  {correct === total ? "Perfektní!" : correct >= 4 ? "Výborně!" : "Zkus to znovu!"}
-                </div>
-              </div>
-            );
-          })()}
-
-          <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 18, flexWrap: "wrap" }}>
-            <button className="check-btn" onClick={checkAnswers} disabled={!currentSentences} style={{ background: data.accent, color: "white" }}>✓ Zkontrolovat</button>
-            <button className="check-btn" onClick={clearInputs} style={{ background: t.pillBg, color: t.pillText }}>↺ Vymazat</button>
-          </div>
-        </div>
-
-        <div style={{ textAlign: "center", marginTop: 14, fontSize: "0.82rem", color: t.muted, fontStyle: "italic", fontFamily: "'Lora', serif" }}>
-          Nové věty = náhodný výběr z místní databáze + AI vět (pokud jsou k dispozici).
-        </div>
-      </div>
+      {/* Mobile navigation */}
+      <MobileNav
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        onReviewTab={() => { setSentences(prev => ({ ...prev, REVIEW: null })); setActiveTab("REVIEW"); }}
+        onShowHistory={loadHistory}
+        onShowTahak={() => setShowTahak(true)}
+        darkMode={darkMode}
+      />
 
       {/* Historie panel */}
       {showHistory && (
-        <div className="history-overlay" style={{ background: t.overlayBg }} onClick={() => setShowHistory(false)}>
-          <div className="history-panel" style={{ background: t.panelBg }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ padding: "18px 20px 14px", borderBottom: `1px solid ${t.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: t.panelBg, position: "sticky", top: 0, zIndex: 1 }}>
-              <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "1.2rem", color: t.text }}>📊 Přehled</span>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                {histTab === "sessions" && sessions && sessions.length > 0 && (
-                  <button onClick={exportCSV} style={{ background: t.pillBg, border: `1px solid ${t.borderMid}`, borderRadius: 8, padding: "5px 12px", fontFamily: "'Nunito', sans-serif", fontWeight: 700, fontSize: "0.8rem", color: t.subtext, cursor: "pointer" }}>⬇ CSV</button>
-                )}
-                <button onClick={() => setShowHistory(false)} style={{ background: "none", border: "none", fontSize: "1.4rem", cursor: "pointer", color: t.subtext, lineHeight: 1 }}>✕</button>
-              </div>
-            </div>
-            <div style={{ display: "flex", borderBottom: `1px solid ${t.border}`, padding: "0 20px", background: t.panelBg, position: "sticky", top: 57, zIndex: 1 }}>
-              {[["sessions", "Sezení"], ["stats", "Statistiky"], ["badges", "🏅 Odznaky"]].map(([key, label]) => (
-                <button key={key} onClick={() => setHistTab(key)} style={{ background: "none", border: "none", borderBottom: histTab === key ? `3px solid ${data.accent}` : "3px solid transparent", padding: "10px 16px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.9rem", color: histTab === key ? data.accent : t.subtext, cursor: "pointer", marginBottom: -1 }}>
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div style={{ padding: "16px 20px", flex: 1 }}>
-              {histTab === "sessions" && (
-                <>
-                  {sessions === null && <div style={{ textAlign: "center", color: t.subtext, fontFamily: "'Nunito', sans-serif", padding: 40 }}>Načítám…</div>}
-                  {sessions !== null && sessions.length === 0 && <div style={{ textAlign: "center", color: t.subtext, fontFamily: "'Nunito', sans-serif", padding: 40 }}>Žádná cvičení zatím nebyla uložena.</div>}
-                  {/* Filtr podle profilu — jen pro rodiče */}
-                  {sessions !== null && sessions.length > 0 && currentUser.role === "parent" && users && users.length > 1 && (
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-                      <button className="chip-btn" onClick={() => setHistFilterUser(null)} style={{ background: histFilterUser === null ? data.accent : t.chipInactiveBg, color: histFilterUser === null ? "white" : t.chipInactiveText }}>
-                        Všichni
-                      </button>
-                      {users.map((u) => (
-                        <button key={u.id} className="chip-btn" onClick={() => setHistFilterUser(histFilterUser === u.id ? null : u.id)} style={{ display: "flex", alignItems: "center", gap: 5, background: histFilterUser === u.id ? avatarColor(u.id) : t.chipInactiveBg, color: histFilterUser === u.id ? "white" : t.chipInactiveText }}>
-                          <Avatar user={u} size={16} />
-                          {u.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {sessions !== null && sessions
-                    .filter((s) => histFilterUser === null || s.user_id === histFilterUser)
-                    .map((session) => {
-                    const meta = TAB_META[session.letter];
-                    const pct = session.total > 0 ? Math.round((session.correct / session.total) * 100) : 0;
-                    const date = new Date(typeof session.timestamp === "string" && !session.timestamp.endsWith("Z") && !session.timestamp.includes("+") ? session.timestamp.replace(" ", "T") + "Z" : session.timestamp);
-                    const sessionUser = currentUser.role === "parent" && users ? users.find((u) => u.id === session.user_id) : null;
-                    const durStr = session.duration_s ? `⏱ ${Math.floor(session.duration_s / 60)}:${String(session.duration_s % 60).padStart(2, "0")}` : null;
-                    return (
-                      <details key={session.id} className="session-card" style={{ border: `1px solid ${t.border}` }}>
-                        <summary className="session-header" style={{ listStyle: "none" }}>
-                          <span style={{ background: meta?.accent ?? "#999", color: "white", borderRadius: 8, padding: "3px 10px", fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.9rem" }}>{meta?.emoji} Po {session.letter}</span>
-                          <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.88rem", color: t.text, fontWeight: 700 }}>
-                            {session.correct}/{session.total}
-                            <span style={{ marginLeft: 5, color: pct === 100 ? "#27ae60" : pct >= 70 ? "#f39c12" : "#e74c3c", fontWeight: 800 }}>{pct}%</span>
-                          </span>
-                          {sessionUser && (
-                            <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: "0.78rem", color: t.subtext, fontFamily: "'Nunito', sans-serif" }}>
-                              <Avatar user={sessionUser} size={16} />
-                              {sessionUser.name}
-                            </span>
-                          )}
-                          <span style={{ marginLeft: "auto", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
-                            <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.8rem", color: t.subtext }}>{date.toLocaleDateString("cs-CZ")} {date.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}</span>
-                            {durStr && <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.75rem", color: t.muted }}>{durStr}</span>}
-                          </span>
-                        </summary>
-                        {session.mistakes.length > 0 ? session.mistakes.map((m, i) => (
-                          <div key={i} className="mistake-row" style={{ borderTop: `1px solid ${t.border}`, background: t.mistakeBg }}>
-                            <div style={{ color: t.subtext, marginBottom: 3 }}>{m.sentence}</div>
-                            <div style={{ fontSize: "0.82rem", fontFamily: "'Nunito', sans-serif" }}>
-                              <span style={{ color: "#e74c3c" }}>Napsáno: <strong>{m.given}</strong></span>
-                              <span style={{ margin: "0 8px", color: t.muted }}>→</span>
-                              <span style={{ color: "#27ae60" }}>Správně: <strong>{m.expected}</strong></span>
-                            </div>
-                          </div>
-                        )) : (
-                          <div className="mistake-row" style={{ borderTop: `1px solid ${t.border}`, background: t.mistakeBg, color: "#27ae60", fontFamily: "'Nunito', sans-serif", fontWeight: 700 }}>🏆 Žádné chyby!</div>
-                        )}
-                      </details>
-                    );
-                  })}
-                </>
-              )}
-              {histTab === "stats" && (
-                <>
-                  {stats === null && <div style={{ textAlign: "center", color: t.subtext, fontFamily: "'Nunito', sans-serif", padding: 40 }}>Načítám…</div>}
-                  {stats !== null && stats.length === 0 && <div style={{ textAlign: "center", color: t.subtext, fontFamily: "'Nunito', sans-serif", padding: 40 }}>Zatím žádná data.</div>}
-                  {stats !== null && stats.length > 0 && (
-                    <>
-                      {/* Per-profil porovnání (jen pro rodiče s více uživateli) */}
-                      {currentUser.role === "parent" && statsByUser && users && users.length > 1 && (() => {
-                        const usersWithData = users.filter((u) => statsByUser.some((r) => r.user_id === u.id));
-                        if (usersWithData.length < 2) return null;
-                        return (
-                          <div style={{ marginBottom: 24 }}>
-                            <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, marginBottom: 14, fontSize: "1rem" }}>Porovnání profilů</div>
-                            {LETTERS.filter((l) => statsByUser.some((r) => r.letter === l)).map((letter) => {
-                              const meta = TAB_META[letter];
-                              return (
-                                <div key={letter} style={{ marginBottom: 14 }}>
-                                  <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.subtext, fontSize: "0.82rem", marginBottom: 5 }}>{meta.emoji} Po {letter}</div>
-                                  {usersWithData.map((u) => {
-                                    const row = statsByUser.find((r) => r.user_id === u.id && r.letter === letter);
-                                    if (!row) return null;
-                                    const pct = row.avg_accuracy || 0;
-                                    const barColor = avatarColor(u.id);
-                                    return (
-                                      <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                                        <Avatar user={u} size={18} />
-                                        <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", color: t.text, minWidth: 60 }}>{u.name}</span>
-                                        <div style={{ flex: 1, height: 8, background: t.barTrack, borderRadius: 4, overflow: "hidden" }}>
-                                          <div style={{ height: "100%", width: `${pct}%`, background: barColor, borderRadius: 4, transition: "width 0.6s ease" }} />
-                                        </div>
-                                        <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", fontWeight: 800, color: barColor, minWidth: 38, textAlign: "right" }}>{pct}%</span>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })()}
-                      <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, marginBottom: 14, fontSize: "1rem" }}>
-                        {currentUser.role === "parent" ? "Celková přesnost (vše)" : "Průměrná přesnost"}
-                      </div>
-                      {LETTERS.filter((l) => stats.find((s) => s.letter === l)).map((letter) => {
-                        const s = stats.find((st) => st.letter === letter);
-                        const meta = TAB_META[letter];
-                        const pct = s.avg_accuracy || 0;
-                        const barColor = pct >= 90 ? "#27ae60" : pct >= 70 ? "#f39c12" : "#e74c3c";
-                        return (
-                          <div key={letter} style={{ marginBottom: 16 }}>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
-                              <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, fontSize: "0.92rem" }}>{meta.emoji} Po {letter}</span>
-                              <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.82rem", color: t.subtext }}><strong style={{ color: barColor }}>{pct}%</strong> · {s.sessions} sez.</span>
-                            </div>
-                            <div style={{ height: 10, background: t.barTrack, borderRadius: 5, overflow: "hidden" }}>
-                              <div style={{ height: "100%", width: `${pct}%`, background: barColor, borderRadius: 5, transition: "width 0.6s ease" }} />
-                            </div>
-                          </div>
-                        );
-                      })}
-                      <div style={{ marginTop: 24, padding: "14px 16px", background: t.rowBg, borderRadius: 12, border: `1px solid ${t.border}` }}>
-                        <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, marginBottom: 10, fontSize: "0.88rem" }}>Celkové součty</div>
-                        {stats.map((s) => (
-                          <div key={s.letter} style={{ display: "flex", justifyContent: "space-between", fontFamily: "'Nunito', sans-serif", fontSize: "0.82rem", color: t.subtext, marginBottom: 5 }}>
-                            <span>{TAB_META[s.letter]?.emoji} Po {s.letter}</span>
-                            <span>{s.total_correct} / {s.total_blanks} správně</span>
-                          </div>
-                        ))}
-                      </div>
-                      {sessions && sessions.length > 0 && (() => {
-                        const tsToDate = (ts) => new Date(typeof ts === "string" && !ts.endsWith("Z") && !ts.includes("+") ? ts.replace(" ", "T") + "Z" : ts);
-                        const filtered = sessions.filter((s) => histFilterUser === null || s.user_id === histFilterUser);
-                        const byDay = {};
-                        filtered.forEach((s) => {
-                          const day = tsToDate(s.timestamp).toISOString().slice(0, 10);
-                          if (!byDay[day]) byDay[day] = { correct: 0, total: 0 };
-                          byDay[day].correct += s.correct;
-                          byDay[day].total += s.total;
-                        });
-                        const days = Array.from({ length: 14 }, (_, i) => {
-                          const d = new Date();
-                          d.setDate(d.getDate() - (13 - i));
-                          return d.toISOString().slice(0, 10);
-                        });
-                        const chartData = days.map((day) => ({
-                          day,
-                          label: new Date(day + "T12:00:00Z").toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric" }),
-                          pct: byDay[day] && byDay[day].total > 0 ? Math.round(byDay[day].correct / byDay[day].total * 100) : null,
-                        }));
-                        if (!chartData.some((d) => d.pct !== null)) return null;
-                        const BAR_W = 18, GAP = 3, H = 80, TOTAL_W = 14 * (BAR_W + GAP);
-                        return (
-                          <div style={{ marginTop: 20 }}>
-                            <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: t.text, marginBottom: 8, fontSize: "0.88rem" }}>Přesnost — posledních 14 dní</div>
-                            <svg width="100%" viewBox={`0 0 ${TOTAL_W} ${H + 22}`} style={{ display: "block", overflow: "visible" }}>
-                              {chartData.map((d, i) => {
-                                const x = i * (BAR_W + GAP);
-                                if (d.pct === null) return (
-                                  <g key={d.day}>
-                                    <rect x={x} y={H - 4} width={BAR_W} height={4} fill={darkMode ? "#253040" : "#eee"} rx={2} />
-                                  </g>
-                                );
-                                const barH = Math.max(4, Math.round(d.pct * H / 100));
-                                const color = d.pct >= 80 ? "#27ae60" : d.pct >= 50 ? "#f39c12" : "#e74c3c";
-                                return (
-                                  <g key={d.day}>
-                                    <rect x={x} y={H - barH} width={BAR_W} height={barH} fill={color} rx={3} opacity={0.9} />
-                                    <text x={x + BAR_W / 2} y={H + 14} textAnchor="middle" fontSize={8} fill={darkMode ? "#6d88a0" : "#aaa"} fontFamily="Nunito, sans-serif">{d.label}</text>
-                                    <title>{d.day}: {d.pct}%</title>
-                                  </g>
-                                );
-                              })}
-                              <line x1={0} y1={H} x2={TOTAL_W} y2={H} stroke={darkMode ? "#253040" : "#ddd"} strokeWidth={1} />
-                            </svg>
-                          </div>
-                        );
-                      })()}
-                    </>
-                  )}
-                </>
-              )}
-              {histTab === "badges" && (
-                <div>
-                  {achievements === null && <div style={{ textAlign: "center", color: t.subtext, fontFamily: "'Nunito', sans-serif", padding: 40 }}>Načítám…</div>}
-                  {achievements !== null && (
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                      {achievements.map((a) => (
-                        <div key={a.id} style={{ padding: "14px 12px", borderRadius: 14, background: a.earned ? (darkMode ? "#1a2a1a" : "#eefaf1") : t.rowBg, border: `2px solid ${a.earned ? "#27ae60" : t.border}`, opacity: a.earned ? 1 : 0.5, transition: "all 0.2s" }}>
-                          <div style={{ fontSize: "1.8rem", marginBottom: 6 }}>{a.emoji}</div>
-                          <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.88rem", color: a.earned ? (darkMode ? "#5dd88a" : "#1a6b30") : t.subtext, marginBottom: 3 }}>{a.name}</div>
-                          <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.75rem", color: t.subtext, lineHeight: 1.35 }}>{a.desc}</div>
-                          {a.earned && <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.72rem", color: "#27ae60", fontWeight: 700, marginTop: 5 }}>✓ Získáno</div>}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <HistoryPanel
+          onClose={() => setShowHistory(false)}
+          darkMode={darkMode}
+          currentUser={currentUser}
+          users={users}
+          sessions={sessions}
+          stats={stats}
+          statsByUser={statsByUser}
+          achievements={achievements}
+          histTab={histTab}
+          setHistTab={setHistTab}
+          histFilterUser={histFilterUser}
+          setHistFilterUser={setHistFilterUser}
+          onExportCSV={exportCSV}
+        />
       )}
 
-      {/* Tahák overlay */}
+      {/* Tahák panel */}
       {showTahak && (
-        <div className="history-overlay" style={{ background: t.overlayBg }} onClick={() => setShowTahak(false)}>
-          <div className="history-panel" style={{ background: t.panelBg }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ padding: "18px 20px 14px", borderBottom: `1px solid ${t.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: t.panelBg, position: "sticky", top: 0, zIndex: 1 }}>
-              <span style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "1.1rem", color: t.text }}>📖 Tahák — vyjmenovaná slova</span>
-              <button onClick={() => setShowTahak(false)} style={{ background: "none", border: "none", fontSize: "1.4rem", cursor: "pointer", color: t.subtext, lineHeight: 1 }}>✕</button>
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "12px 20px 0", borderBottom: `1px solid ${t.border}`, paddingBottom: 10, position: "sticky", top: 57, background: t.panelBg, zIndex: 1 }}>
-              {LETTERS.map((l) => (
-                <button key={l} className="chip-btn" onClick={() => setTahakTab(l)} style={{ background: tahakTab === l ? TAB_META[l].accent : t.chipInactiveBg, color: tahakTab === l ? "white" : t.chipInactiveText, fontWeight: 800 }}>
-                  {TAB_META[l].emoji} {l}
-                </button>
-              ))}
-            </div>
-            <div style={{ padding: "16px 20px" }}>
-              {(() => {
-                const entry = TAHAK_DATA[tahakTab];
-                const meta = TAB_META[tahakTab];
-                return (
-                  <>
-                    <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: meta.color, marginBottom: 12, fontSize: "1rem" }}>
-                      Vyjmenovaná slova po {tahakTab}
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
-                      {entry.words.map((w) => (
-                        <span key={w} style={{ background: darkMode ? `${meta.accent}22` : meta.bg, color: meta.color, border: `2px solid ${meta.accent}55`, borderRadius: 10, padding: "5px 12px", fontFamily: "'Lora', serif", fontWeight: 600, fontSize: "0.95rem" }}>{w}</span>
-                      ))}
-                    </div>
-                    {entry.note && (
-                      <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.88rem", color: t.subtext, marginBottom: 16, padding: "10px 12px", background: t.rowBg, borderRadius: 10, border: `1px solid ${t.border}`, fontStyle: "italic" }}>
-                        {entry.note}
-                      </div>
-                    )}
-                    <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, color: "#c0392b", marginBottom: 10, fontSize: "0.88rem" }}>
-                      ⚠️ Chytáky — píší se s i/í
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {entry.tricky.map((w) => (
-                        <span key={w} style={{ background: darkMode ? "#2a1010" : "#fff5f5", color: "#c0392b", border: "2px solid #f1948a", borderRadius: 10, padding: "5px 12px", fontFamily: "'Lora', serif", fontWeight: 600, fontSize: "0.95rem" }}>{w}</span>
-                      ))}
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-        </div>
+        <TahakPanel onClose={() => setShowTahak(false)} darkMode={darkMode} />
       )}
 
-      {managePanel}
-      {pinModalEl}
-      {profileModalEl}
+      {/* Nastavení panel */}
+      {showManage && (
+        <SettingsPanel
+          onClose={() => setShowManage(false)}
+          darkMode={darkMode}
+          currentUser={currentUser}
+          users={users}
+          aiSettings={aiSettings}
+          aiKeyInput={aiKeyInput}
+          setAiKeyInput={setAiKeyInput}
+          aiGenerating={aiGenerating}
+          aiNotice={aiNotice}
+          aiManageLetter={aiManageLetter}
+          setAiManageLetter={setAiManageLetter}
+          aiManageSentences={aiManageSentences}
+          aiManageLoading={aiManageLoading}
+          aiDebug={aiDebug}
+          problemSents={problemSents}
+          problemSentsUser={problemSentsUser}
+          setProblemSentsUser={setProblemSentsUser}
+          problemSentsLoading={problemSentsLoading}
+          onLoadProblemSents={loadProblemSents}
+          onSaveAiKey={handleSaveAiKey}
+          onDeleteAiKey={handleDeleteAiKey}
+          onGenerateAI={handleGenerateAI}
+          onDeleteAISentences={handleDeleteAISentences}
+          onReviewAISentence={handleReviewAISentence}
+          onDeleteAISentenceItem={handleDeleteAISentenceItem}
+          onDeleteByModel={handleDeleteByModel}
+          onLoadAiManageSentences={loadAiManageSentences}
+          onOpenCreate={openCreate}
+          onOpenEdit={openEdit}
+          onDeleteProfile={handleDeleteProfile}
+          onExportLocalBankCSV={exportLocalBankCSV}
+          onToggleAutoGenerate={handleToggleAutoGenerate}
+          onSetAutoInterval={handleSetAutoInterval}
+        />
+      )}
 
+      {/* PIN modál */}
+      {pinModal && (
+        <PinModal
+          user={pinModal}
+          pinInput={pinInput}
+          setPinInput={setPinInput}
+          pinError={pinError}
+          onSubmit={handlePinSubmit}
+          onClose={() => setPinModal(null)}
+          darkMode={darkMode}
+        />
+      )}
+
+      {/* Profil modál */}
+      {profileModal && (
+        <ProfileModal
+          profileModal={profileModal}
+          profileForm={profileForm}
+          setProfileForm={setProfileForm}
+          profileError={profileError}
+          profileSaving={profileSaving}
+          onSave={handleSaveProfile}
+          onClose={() => setProfileModal(null)}
+          onAvatarChange={handleAvatarChange}
+          avatarInputRef={avatarInputRef}
+          darkMode={darkMode}
+        />
+      )}
+
+      {/* Achievement toast */}
       {achievementToast && (
         <div className="achievement-toast">
-          <div style={{ background: darkMode ? "#1a2a1a" : "#ffffff", border: "2px solid #27ae60", borderRadius: 16, padding: "14px 22px", display: "flex", alignItems: "center", gap: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.18)", minWidth: 220 }}>
-            <span style={{ fontSize: "2rem" }}>{achievementToast.emoji}</span>
+          <div
+            className={`flex items-center gap-3 px-6 py-4 rounded-2xl border-2 border-green-500 shadow-2xl min-w-[220px] ${
+              darkMode ? "bg-gray-900" : "bg-white"
+            }`}
+          >
+            <span className="text-3xl">{achievementToast.emoji}</span>
             <div>
-              <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "0.78rem", color: "#27ae60", letterSpacing: "0.05em", textTransform: "uppercase" }}>Nový odznak!</div>
-              <div style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 800, fontSize: "1rem", color: darkMode ? "#d8e4f0" : "#2c3e50" }}>{achievementToast.name}</div>
-              <div style={{ fontFamily: "'Nunito', sans-serif", fontSize: "0.78rem", color: darkMode ? "#6d88a0" : "#7f8c8d", marginTop: 2 }}>{achievementToast.desc}</div>
+              <div className="text-xs font-bold text-green-500 uppercase tracking-wider">Nový odznak!</div>
+              <div className={`font-extrabold text-base ${darkMode ? "text-gray-100" : "text-gray-800"}`}>
+                {achievementToast.name}
+              </div>
+              <div className={`text-xs mt-0.5 ${darkMode ? "text-gray-400" : "text-gray-500"}`}>
+                {achievementToast.desc}
+              </div>
             </div>
           </div>
         </div>

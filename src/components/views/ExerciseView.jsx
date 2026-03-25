@@ -208,6 +208,7 @@ export default function ExerciseView({
             <button
               onClick={onCheck}
               disabled={!currentSentences}
+              data-check-btn
               className="px-7 py-2.5 rounded-xl font-bold text-sm text-white transition-all hover:opacity-90 hover:-translate-y-0.5 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none shadow-sm"
               style={{ background: data.accent }}
             >
